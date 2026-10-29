@@ -1,0 +1,14 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'com.armament.fynagesms'
+version = '1.0.0'
+
+android {
+  namespace 'com.armament.fynagesms'
+  defaultConfig {
+    minSdkVersion 24
+  }
+}
