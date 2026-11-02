@@ -1,6 +1,7 @@
 import { getDatabase, withDatabaseTransaction } from "@/db/database";
-import { getSyncState, mergeRemoteFinancialCategories, mergeRemoteFinancialRecords, normalizeLedgerRecord } from "@/repositories/financialRecords";
+import { getSyncState, listFinancialAccounts, mergeRemoteFinancialAccounts, mergeRemoteFinancialCategories, mergeRemoteFinancialRecords, normalizeLedgerRecord } from "@/repositories/financialRecords";
 import { dedupeLedgerRecords } from "@/services/finance/ledgerIdentity";
+import { callArmament } from "@/services/integrations/armamentApi";
 import type { FinancialCategory, FinancialRecord } from "@/types/finance";
 import { collection, doc, getDocsFromServer, getFirestore, limit, orderBy, query, runTransaction, serverTimestamp, setDoc, startAfter, where } from "@react-native-firebase/firestore";
 
@@ -10,15 +11,32 @@ const db = getFirestore();
 const syncCollection = (uid: string) => collection(db, "users", uid, "financial_ledger");
 const syncDoc = (uid: string, id: string) => doc(syncCollection(uid), id);
 const categoryCollection = (uid: string) => collection(db, "users", uid, "financial_categories");
+const accountCollection = (uid: string) => collection(db, "users", uid, "financial_accounts");
 
 async function upload(uid: string, businessId: string, row: QueueRow): Promise<void> {
   const ref = syncDoc(uid, row.record_id);
+  let queuedTombstone: FinancialRecord | undefined;
+  if (row.operation === "delete") {
+    let payload = row.payload;
+    if (!payload) {
+      const local = await getDatabase();
+      payload = (await local.getFirstAsync<{ payload: string }>("SELECT payload FROM financial_records WHERE owner_id=? AND business_id=? AND record_id=?", uid, businessId, row.record_id))?.payload ?? null;
+    }
+    if (payload) queuedTombstone = JSON.parse(payload) as FinancialRecord;
+  }
   await runTransaction(db, async (transaction) => {
     const snapshot = await transaction.get(ref);
     const remoteRevision = Number(snapshot.data()?.revision ?? 0);
     if (row.operation === "delete") {
-      const deletedAt = new Date().toISOString();
-      transaction.set(ref, { id: row.record_id, ownerId: uid, businessId, deletedAt, updatedAt: deletedAt, revision: Math.max(remoteRevision,row.revision) + 1 });
+      const remote = snapshot.data();
+      const deletedAt = queuedTombstone?.deletedAt ?? new Date().toISOString();
+      const tombstone: FinancialRecord = queuedTombstone
+        ? { ...queuedTombstone, id: row.record_id, ownerId: uid, businessId, deletedAt, revision: row.revision }
+        : { id: row.record_id, ownerId: uid, businessId, deletedAt, updatedAt: deletedAt, revision: row.revision } as FinancialRecord;
+      const remoteUpdatedAt = String(remote?.updatedAt ?? "");
+      if (remoteRevision > row.revision || (remoteRevision === row.revision && remoteUpdatedAt > tombstone.updatedAt)) return;
+      if (remoteRevision === row.revision && remote?.deletedAt && typeof remote.amountMinor === "number") return;
+      transaction.set(ref, { ...tombstone, revision: Math.max(remoteRevision, row.revision), updatedAtServer: serverTimestamp() });
       return;
     }
     const record = JSON.parse(row.payload!) as FinancialRecord;
@@ -28,6 +46,15 @@ async function upload(uid: string, businessId: string, row: QueueRow): Promise<v
     // Ties favor the existing cloud copy; clients never overwrite a newer copy.
     if (remoteRevision >= row.revision && remoteUpdatedAt >= normalized.updatedAt) return;
     transaction.set(ref, { ...normalized, sourceApp: normalized.sourceApp ?? "fynage", sourceRecordId: normalized.sourceRecordId ?? normalized.id, revision: Math.max(remoteRevision, row.revision) + 1, updatedAtServer: serverTimestamp() });
+  });
+  // Shared ledger rows are projected by the trusted Armament service after the
+  // owner's private source record has reached Firestore. Failed calls remain
+  // in the local queue and retry with the source record's stable ID.
+  await callArmament("syncArmamentMoneyLedger", {
+    sourceApp: "fynage",
+    sourceId: "personal",
+    sourceCollection: "financial_ledger",
+    sourceDocumentId: row.record_id,
   });
 }
 
@@ -69,7 +96,43 @@ async function syncCategories(uid: string, businessId: string): Promise<void> {
   }
 }
 
+async function syncAccounts(uid: string, businessId: string): Promise<void> {
+  const local = await getDatabase();
+  const rows = await local.getAllAsync<{ account_id: string; payload: string; revision: number; attempts: number }>("SELECT account_id,payload,revision,attempts FROM account_sync_queue WHERE owner_id=? AND business_id=? AND retry_at<=? ORDER BY queued_at LIMIT 50", uid, businessId, Date.now());
+  for (const row of rows) {
+    const account = JSON.parse(row.payload) as Awaited<ReturnType<typeof listFinancialAccounts>>[number];
+    try {
+      const ref = doc(accountCollection(uid), row.account_id);
+      await runTransaction(db, async (transaction) => {
+        const snapshot = await transaction.get(ref);
+        const remoteRevision = Number(snapshot.data()?.revision ?? 0);
+        const remoteUpdatedAt = String(snapshot.data()?.updatedAt ?? "");
+        if (remoteRevision >= row.revision && remoteUpdatedAt >= account.updatedAt) return;
+        transaction.set(ref, { ...account, revision: Math.max(remoteRevision, row.revision) + 1, updatedAtServer: serverTimestamp() });
+      });
+      await withDatabaseTransaction(async (tx) => {
+        await tx.runAsync("DELETE FROM account_sync_queue WHERE owner_id=? AND business_id=? AND account_id=? AND revision=?", uid, businessId, row.account_id, row.revision);
+        await tx.runAsync("UPDATE financial_accounts SET sync_status='synced' WHERE owner_id=? AND business_id=? AND account_id=? AND revision=?", uid, businessId, row.account_id, row.revision);
+      });
+    } catch {
+      const attempts = row.attempts + 1;
+      await withDatabaseTransaction(async (tx) => {
+        await tx.runAsync("UPDATE account_sync_queue SET attempts=?,retry_at=? WHERE owner_id=? AND business_id=? AND account_id=?", attempts, Date.now() + Math.min(3600000, 3000 * (2 ** Math.min(attempts, 10))), uid, businessId, row.account_id);
+        await tx.runAsync("UPDATE financial_accounts SET sync_status='failed' WHERE owner_id=? AND business_id=? AND account_id=?", uid, businessId, row.account_id);
+      });
+    }
+  }
+  try {
+    const remote = await getDocsFromServer(accountCollection(uid));
+    const accounts = remote.docs.map((entry) => ({ ...entry.data(), id: entry.id }) as Awaited<ReturnType<typeof listFinancialAccounts>>[number]).filter((entry) => entry.businessId === businessId);
+    await mergeRemoteFinancialAccounts(uid, businessId, accounts);
+  } catch {
+    // Local account balances remain available if Firestore is offline.
+  }
+}
+
 async function sync(uid: string,businessId: string): Promise<void> {
+  await syncAccounts(uid, businessId);
   await syncCategories(uid, businessId);
   const dbLocal = await getDatabase();
   while (true) {

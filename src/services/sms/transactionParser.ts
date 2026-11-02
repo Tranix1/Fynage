@@ -2,13 +2,27 @@ import type { FinancialRecord, TransactionDirection, TransactionKind } from "@/t
 
 export type SmsMessage = { id: string; sender: string; body: string; date: number };
 
-const providerSender = (sender: string) => {
-  const value = sender.replace(/[\s()-]/g, "");
-  return value === "+263143" || value === "+263164" || /ecocash|econet/i.test(sender);
-};
+const banks = ["CBZ", "CABS", "FBC", "Stanbic", "Steward", "NMB", "POSB", "Ecobank", "BancABC", "ZB Bank", "First Capital"];
+function providerFor(message: SmsMessage): { name: string; accountId: string } | undefined {
+  const text = `${message.sender} ${message.body}`;
+  const sender = message.sender.replace(/[\s()-]/g, "");
+  if (sender === "+263143" || sender === "+263164" || /ecocash|econet/i.test(text)) return { name: "EcoCash", accountId: "account_ecocash" };
+  if (/innbucks/i.test(text)) return { name: "InnBucks", accountId: "account_innbucks" };
+  const bank = banks.find((name) => new RegExp(`\\b${name.replace(/\s+/g, "\\s+")}\\b`, "i").test(text));
+  if (bank) return { name: bank, accountId: "account_bank" };
+  return undefined;
+}
+export function financialSmsProvider(message: SmsMessage): string | undefined {
+  return providerFor(message)?.name;
+}
 
-const financialWords = /received|credited|sent|transferred|transfer|paid|payment|purchase|withdraw|cash.?out|cash.?in|fee|charged|loan|debit|credit|ecocash|balance/i;
+const financialWords = /received|credited|sent|transferred|transfer|paid|payment|purchase|transaction|withdraw|cash.?out|cash.?in|fee|charged|loan|debit|credit|ecocash|innbucks|balance|account/i;
 const excludedWords = /data bundle|bundle purchase|airtime|recharge|promotional|promo|bonus|free minutes|megabytes|\bmb\b|\bgb\b/i;
+
+/** True for supported-provider financial messages that need human review when parsing is incomplete. */
+export function isReviewableFinancialSms(message: SmsMessage): boolean {
+  return Boolean(providerFor(message) && !excludedWords.test(message.body) && financialWords.test(message.body));
+}
 
 function amountMinor(body: string): number | undefined {
   const match = body.match(/(?:USD|US\$|\$|ZWG|ZWL|RTGS|ZIG)\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)/i)
@@ -19,13 +33,27 @@ function amountMinor(body: string): number | undefined {
   return Number.isFinite(amount) && amount > 0 ? Math.round(amount * 100) : undefined;
 }
 
+function namedAmountMinor(body: string, label: "fee" | "balance"): number | undefined {
+  const keyword = label === "fee" ? "(?:fee|charges?)" : "(?:available\\s+balance|balance)";
+  const currency = "(?:USD|US\\$|\\$|ZWG|ZWL|ZAR|EUR|RTGS|ZIG)";
+  const amount = "([0-9][0-9,]*(?:\\.[0-9]{1,2})?)";
+  const match = body.match(new RegExp(`\\b${keyword}\\b[^\\d]{0,18}${currency}\\s*${amount}`, "i"))
+    ?? body.match(new RegExp(`\\b${keyword}\\b[^\\d]{0,18}${amount}\\s*${currency}`, "i"));
+  if (!match) return undefined;
+  const value = Number(match[1].replace(/,/g, ""));
+  return Number.isFinite(value) && value >= 0 ? Math.round(value * 100) : undefined;
+}
+
 function classify(body: string): { direction: TransactionDirection; type: TransactionKind } | undefined {
   const text = body.toLowerCase();
   if (/\b(received|credited|cash.?in|deposit|loan received)\b/.test(text)) {
     return { direction: "in", type: /loan/.test(text) ? "loan_received" : "income" };
   }
+  // A wallet withdrawal/cash-out moves money to cash; it is not itself proof
+  // that the money was spent. Keep it for review as a transfer.
+  if (/\b(withdraw(?:n|al)?|cash.?out)\b/.test(text)) return { direction: "transfer", type: "transfer" };
   if (/\b(transfer(?:red)? between|own account|to your account)\b/.test(text)) return { direction: "transfer", type: "transfer" };
-  if (/\b(sent|paid|purchase|withdraw|cash.?out|debited|fee|charged|repayment)\b/.test(text)) {
+  if (/\b(sent|paid|purchase|withdraw|cash.?out|debited|debit|fee|charged|repayment)\b/.test(text)) {
     return { direction: "out", type: /loan|repayment/.test(text) ? "loan_repayment" : "expense" };
   }
   return undefined;
@@ -39,7 +67,8 @@ function fingerprint(message: SmsMessage): string {
 }
 
 export function parseFinancialSms(message: SmsMessage, ownerId: string, businessId: string): FinancialRecord | undefined {
-  if (!providerSender(message.sender) || excludedWords.test(message.body) || !financialWords.test(message.body)) return undefined;
+  const provider = providerFor(message);
+  if (!provider || excludedWords.test(message.body) || !financialWords.test(message.body)) return undefined;
   const amount = amountMinor(message.body);
   const parsed = classify(message.body);
   if (!amount || !parsed) return undefined;
@@ -59,6 +88,8 @@ export function parseFinancialSms(message: SmsMessage, ownerId: string, business
     sourceDetails: { sender: message.sender, messageDate: date, messageBody: message.body, providerId },
     direction: parsed.direction, type: parsed.type, amountMinor: amount,
     currency: currencyCode,
+    accountId: provider.accountId, account: provider.name, provider: provider.name,
+    feeMinor: namedAmountMinor(message.body, "fee"), availableBalanceMinor: namedAmountMinor(message.body, "balance"),
     category: "Uncategorized", description: bodyDescription ? `${parsed.direction === "in" ? "Received from" : "Sent to"} ${bodyDescription}` : "Mobile money transaction",
     counterparty, reference, occurredAt: date, createdAt: date, updatedAt: date,
     revision: 1, classificationStatus: "unreviewed", userEditedFields: [],

@@ -4,34 +4,42 @@
     "slug": "Fynage",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/fynage-app-icon.png",
     "scheme": "fynage",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/expo.icon"
+      "icon": "./assets/images/fynage-app-icon.png"
     },
     "android": {
       "permissions": [
         "android.permission.READ_SMS"
       ],
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
-        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+        "backgroundColor": "#FFFFFF",
+        "foregroundImage": "./assets/images/fynage-android-foreground.png"
       },
+      "googleServicesFile": "./google-services.json",
       "predictiveBackGestureEnabled": false,
-      "package": "com.yayapana.Fynage"
+      "package": "com.armament.fynage"
     },
     "web": {
       "output": "static",
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/images/fynage-app-icon.png"
     },
     "plugins": [
       "expo-router",
       [
         "expo-build-properties",
         {
+          "android": {
+            "manifestQueries": {
+              "package": [
+                "com.yayapana.Murimi",
+                "com.armament.tengesa",
+                "com.yayapana.TransixNewVersion"
+              ]
+            }
+          },
           "ios": {
             "useFrameworks": "static"
           }
@@ -40,15 +48,21 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#208AEF",
-          "image": "./assets/images/splash-icon.png",
-          "imageWidth": 76
+          "backgroundColor": "#FFFFFF",
+          "image": "./assets/images/fynage-mark.png",
+          "imageWidth": 220,
+          "dark": {
+            "backgroundColor": "#0F0E11",
+            "image": "./assets/images/fynage-mark.png"
+          }
         }
       ],
       "expo-sqlite",
       "@react-native-firebase/app",
       "@react-native-firebase/auth",
-      "@react-native-firebase/analytics"
+      "@react-native-firebase/analytics",
+      "expo-sharing",
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true,

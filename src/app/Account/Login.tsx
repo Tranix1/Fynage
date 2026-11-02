@@ -24,7 +24,6 @@ import {
 import { AccountType } from '@/types/types';
 import PhoneInput from '@/components/PhoneInput';
 import { trackScreen } from '@/services/analytics/firebaseAnalystics';
-import { useColorScheme } from 'react-native';
 import { phoneAuthError, toE164 } from '@/services/auth/phoneNumber';
 
 import {
@@ -54,7 +53,6 @@ const Login = ({ setDspLoginOrSignup }: any) => {
     const accent = useThemeColor('accent');
     const coolGray = useThemeColor('coolGray');
 
-    const colorScheme = useColorScheme();
 
 
     const [keyboardVisible, setKeyboardVisible] = useState(false);
@@ -200,7 +198,7 @@ const Login = ({ setDspLoginOrSignup }: any) => {
                 <View style={styles.container}>
                     <Image
                         contentFit="contain"
-                        source={colorScheme === "light" ? require('@/assets/trialogo.svg') : require('@/assets/transix_logo_black_bg.png')}
+                        source={require('@/assets/images/fynage-mark.png')}
                         style={styles.logo}
                     />
 

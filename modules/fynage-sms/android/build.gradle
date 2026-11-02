@@ -10,5 +10,6 @@ android {
   namespace 'com.armament.fynagesms'
   defaultConfig {
     minSdkVersion 24
+    versionName = project.version.toString()
   }
 }

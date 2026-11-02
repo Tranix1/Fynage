@@ -53,6 +53,55 @@ async function migrate(database: SQLite.SQLiteDatabase): Promise<void> {
       `);
     });
   }
+  if (version < 3) {
+    await database.withExclusiveTransactionAsync(async (tx) => {
+      await tx.execAsync(`
+        CREATE TABLE financial_accounts (
+          owner_id TEXT NOT NULL, business_id TEXT NOT NULL, account_id TEXT NOT NULL,
+          payload TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 1,
+          sync_status TEXT NOT NULL DEFAULT 'pending' CHECK (sync_status IN ('pending','failed','synced')),
+          updated_at TEXT NOT NULL, PRIMARY KEY(owner_id,business_id,account_id)
+        );
+        CREATE TABLE account_sync_queue (
+          owner_id TEXT NOT NULL, business_id TEXT NOT NULL, account_id TEXT NOT NULL,
+          payload TEXT NOT NULL, revision INTEGER NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
+          retry_at INTEGER NOT NULL DEFAULT 0, queued_at TEXT NOT NULL,
+          PRIMARY KEY(owner_id,business_id,account_id)
+        );
+        CREATE INDEX account_sync_queue_due ON account_sync_queue(owner_id,business_id,retry_at,queued_at);
+        PRAGMA user_version = 3;
+      `);
+    });
+  }
+  if (version < 4) {
+    await database.withExclusiveTransactionAsync(async (tx) => {
+      await tx.execAsync(`
+        CREATE TABLE sms_review_queue (
+          owner_id TEXT NOT NULL, business_id TEXT NOT NULL, message_key TEXT NOT NULL,
+          payload TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', created_at TEXT NOT NULL,
+          PRIMARY KEY(owner_id,business_id,message_key)
+        );
+        CREATE INDEX sms_review_queue_scope ON sms_review_queue(owner_id,business_id,status,created_at DESC);
+        PRAGMA user_version = 4;
+      `);
+    });
+  }
+  if (version < 5) {
+    await database.withExclusiveTransactionAsync(async (tx) => {
+      await tx.execAsync(`
+        CREATE TABLE business_connections (
+          owner_id TEXT NOT NULL,
+          app_id TEXT NOT NULL,
+          source_business_id TEXT NOT NULL,
+          payload TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          PRIMARY KEY(owner_id, app_id, source_business_id)
+        );
+        CREATE INDEX business_connections_owner_app ON business_connections(owner_id, app_id, updated_at DESC);
+        PRAGMA user_version = 5;
+      `);
+    });
+  }
 }
 
 export function getDatabase(): Promise<SQLite.SQLiteDatabase> {

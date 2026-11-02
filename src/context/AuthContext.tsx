@@ -16,6 +16,7 @@ import {
 } from "@react-native-firebase/auth";
 import type { AccountType, CurrentRole } from "@/types/types";
 import { saveAuthenticatedUserProfile } from "@/services/auth/userProfile";
+import { callArmament } from "@/services/integrations/armamentApi";
 
 export type SavedAccount = {
   id: string;
@@ -208,7 +209,7 @@ export function AuthProvider({
   };
 
   // Signup: call after phone OTP verification.
-  const signUp = async ({ displayName, phoneNumber, accountType }: SignUpInput): Promise<AuthResponse> => {
+  const signUp = async ({ displayName, phoneNumber, accountType, referrerCode }: SignUpInput): Promise<AuthResponse> => {
     try {
       const auth = getAuth();
       const firebaseUser = auth.currentUser;
@@ -238,6 +239,19 @@ export function AuthProvider({
       });
 
       await setupUser(auth.currentUser, accountType);
+      await saveAuthenticatedUserProfile({
+        uid: firebaseUser.uid,
+        phoneNumber: firebaseUser.phoneNumber,
+        displayName: name,
+        email: firebaseUser.email,
+        photoURL: firebaseUser.photoURL,
+      });
+      try {
+        await callArmament("assignArmamentReferralCode");
+        if (referrerCode?.trim()) await callArmament("attributeArmamentReferral", { code: referrerCode.trim() });
+      } catch (referralError) {
+        console.warn("Armament referral setup was not completed; account registration is unaffected.", referralError);
+      }
 
       return {
         success: true,

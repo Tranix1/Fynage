@@ -27,7 +27,6 @@ import { firebaseConfig } from '@/db/fireBaseConfig';
 import PhoneInput from '@/components/PhoneInput';
 import { validateReferralCode } from '@/db/operations';
 import { trackEventFirebase, trackScreen } from '@/services/analytics/firebaseAnalystics';
-import { useColorScheme } from 'react-native';
 import { getAuth, signInWithPhoneNumber } from "@react-native-firebase/auth";
 import { phoneAuthError, toE164 } from '@/services/auth/phoneNumber';
 
@@ -56,7 +55,6 @@ const Index = ({ setDspLoginOrSignup, setIsSigningUp }: any) => {
     const accent = useThemeColor('accent');
     const coolGray = useThemeColor('coolGray');
 
-    const colorScheme = useColorScheme();
 
 
     const [keyboardVisible, setKeyboardVisible] = useState(false);
@@ -277,7 +275,7 @@ const Index = ({ setDspLoginOrSignup, setIsSigningUp }: any) => {
                     {/* LOGO */}
                     <Image
                         contentFit="contain"
-                        source={colorScheme === "light" ? require('@/assets/trialogo.svg') : require('@/assets/transix_logo_black_bg.png')}
+                        source={require('@/assets/images/fynage-mark.png')}
                         
                         style={styles.logo}
                     />
