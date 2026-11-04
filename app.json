@@ -1,3 +1,4 @@
+
 {
   "expo": {
     "name": "Fynage",
@@ -32,6 +33,7 @@
         "expo-build-properties",
         {
           "android": {
+            "kotlinVersion": "2.2.21",
             "manifestQueries": {
               "package": [
                 "com.yayapana.Murimi",
@@ -61,6 +63,8 @@
       "@react-native-firebase/app",
       "@react-native-firebase/auth",
       "@react-native-firebase/analytics",
+      "./plugins/withFirebaseAndroidBom",
+      "./plugins/withKotlinCompiler",
       "expo-sharing",
       "expo-secure-store"
     ],

@@ -207,7 +207,7 @@ const Login = ({ setDspLoginOrSignup }: any) => {
                             Welcome Back
                         </ThemedText>
                         <ThemedText style={styles.subHeader} color={coolGray}>
-                            Login to continue using Transix
+                            Login to continue using Fynage
                         </ThemedText>
                     </View>
 

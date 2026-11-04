@@ -26,7 +26,7 @@ export default function BusinessMembersScreen() {
   const [role, setRole] = useState<"admin" | "employee" | "investor">("employee");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const accent = useThemeColor("accent"); const surface = useThemeColor("backgroundLight"); const border = useThemeColor("border"); const muted = useThemeColor("textlight");
+  const accent = useThemeColor("accent"); const surface = useThemeColor("backgroundLight"); const inputBackground = useThemeColor("input"); const text = useThemeColor("text"); const border = useThemeColor("border"); const muted = useThemeColor("textlight");
   const reload = useCallback(async () => {
     if (!uid) return;
     try {
@@ -73,7 +73,7 @@ export default function BusinessMembersScreen() {
       {outgoingInvitations.map((invite) => <View key={invite.id} style={styles.row}><ThemedText style={styles.grow}>Pending invitation · {invite.role}</ThemedText><Pressable disabled={busy} onPress={() => void run(() => callArmament("revokeArmamentInvitation", { invitationId: invite.id }))}><ThemedText color="#a33">Cancel</ThemedText></Pressable></View>)}
       {canManage ? <>
         <ThemedText type="tiny" color={muted}>Search using an exact international phone number or display name.</ThemedText>
-        <TextInput value={searchTerm} onChangeText={setSearchTerm} placeholder="+263771234567 or exact name" autoCapitalize="words" style={styles.input} />
+        <TextInput value={searchTerm} onChangeText={setSearchTerm} placeholder="+263771234567 or exact name" placeholderTextColor={muted} autoCapitalize="words" style={[styles.input, { backgroundColor: inputBackground, color: text, borderColor: border }]} />
         <Pressable disabled={busy || !searchTerm.trim()} onPress={searchUsers} style={[styles.choice, { borderColor: accent }]}><ThemedText color={accent}>Search users</ThemedText></Pressable>
         {candidates.map((candidate) => <Pressable key={candidate.uid} disabled={busy} onPress={() => void run(async () => {
           await callArmament("inviteArmamentMember", { businessId: selected, targetUid: candidate.uid, role });

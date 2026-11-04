@@ -229,7 +229,13 @@ export async function importFinancialRecords(inputs: FinancialRecord[]): Promise
         continue;
       }
       if (record.source === "sms") {
-        const candidates = await db.getAllAsync<{ record_id: string; payload: string }>("SELECT record_id,payload FROM financial_records WHERE owner_id=? AND business_id=? AND json_extract(payload,'$.amountMinor')=? AND json_extract(payload,'$.direction')=?", record.ownerId, record.businessId, record.amountMinor, record.direction);
+        const recordTime = Date.parse(record.occurredAt);
+        const nearStart = new Date(recordTime - 120000).toISOString();
+        const nearEnd = new Date(recordTime + 120000).toISOString();
+        const candidates = await db.getAllAsync<{ record_id: string; payload: string }>(
+          "SELECT record_id,payload FROM financial_records WHERE owner_id=? AND business_id=? AND json_extract(payload,'$.source')='sms' AND json_extract(payload,'$.amountMinor')=? AND json_extract(payload,'$.direction')=? AND json_extract(payload,'$.occurredAt')>=? AND json_extract(payload,'$.occurredAt')<=? LIMIT 50",
+          record.ownerId, record.businessId, record.amountMinor, record.direction, nearStart, nearEnd,
+        );
         const nearMatch = candidates.find(({ payload }) => {
           const previous = JSON.parse(payload) as FinancialRecord;
           const sameSender = previous.sourceDetails?.sender?.replace(/\D/g, "") === record.sourceDetails?.sender?.replace(/\D/g, "");

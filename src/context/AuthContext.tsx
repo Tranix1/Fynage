@@ -1,5 +1,6 @@
 
 import React, {
+  useCallback,
   createContext,
   ReactNode,
   useContext,
@@ -7,6 +8,7 @@ import React, {
   useState,
 } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { doc, getDoc, getFirestore } from "@react-native-firebase/firestore";
 
 import {
   getAuth,
@@ -72,6 +74,10 @@ export type AuthContextValue = {
   user: AuthUser | null;
   isSignedIn: boolean;
   isLoading: boolean;
+  subscriptionAccess: "checking" | "active" | "required" | "error";
+  refreshSubscriptionAccess: () => Promise<void>;
+  subscriptionSkipped: boolean;
+  skipSubscription: () => void;
   currentRole: CurrentRole;
   accounts: SavedAccount[];
   activeAccountId: string | null;
@@ -104,12 +110,37 @@ export function AuthProvider({
   const [user, setUser] = useState<AuthUser | null>(null);
   const [isSignedIn, setIsSignedIn] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [subscriptionAccess, setSubscriptionAccess] = useState<AuthContextValue["subscriptionAccess"]>("checking");
+  const [subscriptionSkipped, setSubscriptionSkipped] = useState(false);
   const [currentRole, setCurrentRole] = useState<CurrentRole>(defaultRole());
   const [accounts, setAccounts] = useState<SavedAccount[]>([]);
   const [activeAccountId, setActiveAccountId] = useState<string | null>(null);
 
+  const refreshSubscriptionAccess = useCallback(async () => {
+    const firebaseUser = getAuth().currentUser;
+    if (!firebaseUser) {
+      setSubscriptionAccess("required");
+      setSubscriptionSkipped(false);
+      return;
+    }
+    setSubscriptionAccess("checking");
+    try {
+      const subscriptionSnapshot = await getDoc(doc(getFirestore(), "subscriptions", firebaseUser.uid));
+      const subscription = subscriptionSnapshot.exists() ? subscriptionSnapshot.data() : null;
+      const expiresAt = subscription?.expiresAt?.toDate?.();
+      const belongsToFynage = subscription?.sourceApp === "fynage" || subscription?.platform === "fynage";
+      const active = belongsToFynage && subscription?.status === "active" && expiresAt instanceof Date && expiresAt.getTime() > Date.now();
+      setSubscriptionAccess(active ? "active" : "required");
+      if (active) setSubscriptionSkipped(false);
+    } catch (error) {
+      console.error("Subscription access check failed:", error);
+      setSubscriptionAccess("error");
+    }
+  }, []);
+
   const setupUser = async (firebaseUser: { uid: string; phoneNumber: string | null; displayName: string | null; email: string | null; photoURL: string | null } | null, accountType?: AccountType) => {
     if (!firebaseUser) {
+      setSubscriptionAccess("required");
       setUser(null);
       setIsSignedIn(false);
       setAccounts([]);
@@ -118,6 +149,9 @@ export function AuthProvider({
       setIsLoading(false);
       return;
     }
+
+    setIsLoading(true);
+    setSubscriptionAccess("checking");
 
     const appUser: AuthUser = {
       uid: firebaseUser.uid,
@@ -160,6 +194,7 @@ export function AuthProvider({
       console.error("Failed to restore saved accounts:", error);
     }
     setIsLoading(false);
+    await refreshSubscriptionAccess();
   };
 
   // Restore the Firebase session when the app opens.
@@ -338,6 +373,8 @@ export function AuthProvider({
 
       setUser(null);
       setIsSignedIn(false);
+      setSubscriptionAccess("required");
+      setSubscriptionSkipped(false);
       setAccounts([]);
       setCurrentRole(defaultRole());
       setActiveAccountId(null);
@@ -355,6 +392,10 @@ export function AuthProvider({
         user,
         isSignedIn,
         isLoading,
+        subscriptionAccess,
+        refreshSubscriptionAccess,
+        subscriptionSkipped,
+        skipSubscription: () => setSubscriptionSkipped(true),
         currentRole,
         accounts,
         activeAccountId,

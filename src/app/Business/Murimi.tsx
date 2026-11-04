@@ -21,7 +21,7 @@ export default function MurimiBusinesses() {
   const [pairingCode, setPairingCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const border = useThemeColor("border"); const surface = useThemeColor("backgroundLight"); const accent = useThemeColor("accent"); const muted = useThemeColor("textlight");
+  const border = useThemeColor("border"); const surface = useThemeColor("backgroundLight"); const accent = useThemeColor("accent"); const muted = useThemeColor("textlight"); const inputBackground = useThemeColor("input"); const text = useThemeColor("text");
   const reload = useCallback(async () => {
     if (!user) return;
     const [connectionResult, ledgerResult] = await Promise.allSettled([
@@ -59,7 +59,7 @@ export default function MurimiBusinesses() {
     <View style={[styles.notice, { backgroundColor: surface, borderColor: border }]}><Ionicons name="lock-closed-outline" size={19} color={accent} /><ThemedText style={styles.flex} type="tiny" color={muted}>Connect each farm with its owner’s one-time code. Fynage receives read-only financial data. It does not create or edit farm records.</ThemedText></View>
     <ThemedText type="subtitle">Connect a farm</ThemedText>
     <ThemedText type="tiny" color={muted}>In Murimi, open More → Finance app connections, create a code for Fynage, then enter it here. The code can be used once and expires in 10 minutes.</ThemedText>
-    <TextInput value={pairingCode} onChangeText={setPairingCode} autoCapitalize="none" autoCorrect={false} placeholder="One-time Murimi code" style={styles.input} accessibilityLabel="Murimi one-time pairing code" />
+    <TextInput value={pairingCode} onChangeText={setPairingCode} autoCapitalize="none" autoCorrect={false} placeholder="One-time Murimi code" placeholderTextColor={muted} style={[styles.input, { backgroundColor: inputBackground, color: text, borderColor: border }]} accessibilityLabel="Murimi one-time pairing code" />
     <Pressable disabled={busy || pairingCode.trim().length < 30} onPress={() => void connect()} style={[styles.primary, (busy || pairingCode.trim().length < 30) && styles.disabled]}>{busy ? <ActivityIndicator color="#fff" /> : <ThemedText color="#fff" type="defaultSemiBold">Connect farm</ThemedText>}</Pressable>
     {error ? <ThemedText color="#a33">{error}</ThemedText> : null}
     <ThemedText type="subtitle">Connected farms</ThemedText>

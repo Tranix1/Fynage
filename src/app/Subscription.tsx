@@ -1,93 +1,152 @@
 import React, { useCallback, useState } from "react";
-import { Alert, Linking, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
-import { useFocusEffect } from "expo-router";
-import { collection, doc, getDoc, getDocs, getFirestore, query, where } from "@react-native-firebase/firestore";
+import { Linking, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { useFocusEffect, useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { doc, getDoc, getFirestore } from "@react-native-firebase/firestore";
 import { getAuth } from "@react-native-firebase/auth";
 import ScreenWrapper from "@/components/ScreenWrapper";
 import { ThemedText } from "@/components/ThemedText";
 import { useThemeColor } from "@/hooks/useThemeColor";
 import { callArmament } from "@/services/integrations/armamentApi";
+import { useAuth } from "@/context/AuthContext";
 
 const paymentEndpoint = "https://us-central1-armament-f5a0b.cloudfunctions.net/createArmamentSubscriptionPayment";
+type PaymentMethod = "ecocash" | "card";
+type SubscriptionTab = "subscription" | "about";
 
 export default function SubscriptionScreen() {
+  const { refreshSubscriptionAccess, skipSubscription } = useAuth();
+  const router = useRouter();
+  const { bottom } = useSafeAreaInsets();
   const uid = getAuth().currentUser?.uid;
   const [subscription, setSubscription] = useState<Record<string, any> | null>(null);
   const [subscriptionActive, setSubscriptionActive] = useState(false);
-  const [businessCoverage, setBusinessCoverage] = useState<{ name: string; role: string }[]>([]);
-  const [canSubscribe, setCanSubscribe] = useState(true);
-  const [referralCode, setReferralCode] = useState("");
-  const [codeInput, setCodeInput] = useState("");
-  const [credits, setCredits] = useState(0);
-  const [creditIds, setCreditIds] = useState<string[]>([]);
+  const [paymentId, setPaymentId] = useState<string | null>(null);
+  const [paymentStatus, setPaymentStatus] = useState("");
+  const [activeTab, setActiveTab] = useState<SubscriptionTab>("subscription");
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("ecocash");
+  const [ecocashNumber, setEcocashNumber] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const accent = useThemeColor("accent"); const surface = useThemeColor("backgroundLight"); const border = useThemeColor("border"); const muted = useThemeColor("textlight");
+  const accent = useThemeColor("accent"); const surface = useThemeColor("backgroundLight"); const inputBackground = useThemeColor("input"); const text = useThemeColor("text"); const border = useThemeColor("border"); const muted = useThemeColor("textlight"); const iconColor = useThemeColor("icon"); const background = useThemeColor("background");
   const refresh = useCallback(async () => {
     if (!uid) return;
     try {
-      const [sub, creditDocs, code, businessList] = await Promise.all([
-        getDoc(doc(getFirestore(), "subscriptions", uid)),
-        getDocs(query(collection(getFirestore(), "referralCredits"), where("ownerId", "==", uid), where("status", "==", "available"))),
-        callArmament<{ code: string }>("assignArmamentReferralCode"),
-        callArmament<{ businesses: { id: string; name: string; role: string }[] }>("listArmamentBusinesses"),
-      ]);
+      const sub = await getDoc(doc(getFirestore(), "subscriptions", uid));
       const subscriptionData = sub.exists() ? sub.data() : null;
       setSubscription(subscriptionData);
       const expiryDate = subscriptionData?.expiresAt?.toDate?.();
-      const ownActive = subscriptionData?.status === "active" && expiryDate instanceof Date && expiryDate.getTime() > Date.now();
-      const entitlements = await Promise.all(businessList.businesses.map(async (business) => ({ business, entitlement: await callArmament<{ active: boolean }>("getArmamentEntitlement", { businessId: business.id }) })));
-      const activeMemberships = entitlements.filter(({ entitlement }) => entitlement.active).map(({ business }) => ({ name: business.name, role: business.role }));
-      setBusinessCoverage(activeMemberships);
-      setCanSubscribe(!businessList.businesses.length || businessList.businesses.some((business) => business.role === "owner"));
+      const belongsToFynage = subscriptionData?.sourceApp === "fynage" || subscriptionData?.platform === "fynage";
+      const ownActive = belongsToFynage && subscriptionData?.status === "active" && expiryDate instanceof Date && expiryDate.getTime() > Date.now();
       setSubscriptionActive(ownActive);
-      setCredits(creditDocs.size);
-      setCreditIds(creditDocs.docs.map((item) => item.id));
-      setReferralCode(code.code);
       setError("");
+      await refreshSubscriptionAccess();
+
     } catch (e) { setError(e instanceof Error ? e.message : "Subscription information could not be loaded."); }
-  }, [uid]);
+  }, [refreshSubscriptionAccess, uid]);
   useFocusEffect(useCallback(() => { void refresh(); }, [refresh]));
   const act = async (run: () => Promise<void>) => { setBusy(true); setError(""); try { await run(); } catch (e) { setError(e instanceof Error ? e.message : "The request failed."); } finally { setBusy(false); } };
   const pay = () => act(async () => {
     const user = getAuth().currentUser; if (!user) throw new Error("Sign in to continue.");
-    const response = await fetch(paymentEndpoint, { method: "POST", headers: { Authorization: "Bearer " + await user.getIdToken(), "Content-Type": "application/json" }, body: JSON.stringify({ sourceApp: "fynage", returnUrl: "fynage://subscription" }) });
-    const result = await response.json(); if (!response.ok) throw new Error(result.error ?? "Paynow could not start.");
+    let phone: string | undefined;
+    if (paymentMethod === "ecocash") {
+      const digits = ecocashNumber.trim().replace(/[\s()-]/g, "");
+      if (!/^(?:\+263|263|0)?7\d{8}$/.test(digits)) throw new Error("Enter a valid EcoCash number, for example 0771234567.");
+      phone = digits.startsWith("+") ? digits.slice(1) : digits.startsWith("0") ? `263${digits.slice(1)}` : digits.startsWith("263") ? digits : `263${digits}`;
+    }
+    const response = await fetch(paymentEndpoint, { method: "POST", headers: { Authorization: "Bearer " + await user.getIdToken(), "Content-Type": "application/json" }, body: JSON.stringify({ sourceApp: "fynage", returnUrl: "fynage://subscription", paymentMethod, ...(phone ? { phone } : {}) }) });
+    const responseText = await response.text();
+    let result: { error?: string; redirectUrl?: string; paymentId?: string };
+    try { result = JSON.parse(responseText) as typeof result; }
+    catch { throw new Error(`Paynow returned an invalid response (HTTP ${response.status}). Check that the payment function is deployed.`); }
+    if (!response.ok) throw new Error(result.error ?? "Paynow could not start.");
     if (typeof result.redirectUrl !== "string") throw new Error("Paynow did not return a payment page.");
+    setPaymentId(String(result.paymentId)); setPaymentStatus("pending");
     await Linking.openURL(result.redirectUrl);
   });
-  const redeem = () => act(async () => {
-    const creditId = creditIds[0];
-    if (!creditId) throw new Error("No available referral credit.");
-    await callArmament("redeemArmamentReferralCredit", { creditId });
-    await refresh();
-  });
-  const attribute = () => act(async () => {
-    if (!codeInput.trim()) throw new Error("Enter a referral code.");
-    await callArmament("attributeArmamentReferral", { code: codeInput.trim() });
-    setCodeInput("");
-    Alert.alert("Referral applied", "This account is now attributed to the referral code.");
+  const checkPayment = () => act(async () => {
+    if (!paymentId) return;
+    const result = await callArmament<{ status: string }>("checkArmamentSubscriptionPayment", { paymentId, sourceApp: "fynage" });
+    setPaymentStatus(result.status);
+    if (result.status === "paid") await refresh();
   });
   const expiry = subscription?.expiresAt?.toDate?.();
-  return <ScreenWrapper fh={false}><ScrollView contentContainerStyle={styles.page}>
-    <ThemedText type="title">Subscription & referrals</ThemedText>
+  return <ScreenWrapper fh={false}><View style={styles.screen}>
+    <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
+    <View style={styles.content}>
+    {activeTab === "about" ? <View style={[styles.card, styles.aboutCard, { backgroundColor: surface, borderColor: border }]}>
+      <ThemedText type="title" style={styles.aboutTitle}>About Fynage</ThemedText>
+      <ThemedText color={muted} style={styles.aboutText}>Fynage helps you keep track of your money. Record income and expenses, organize transactions, and review your monthly history and summaries. You can also choose to link SMS messages to transactions while recording them.</ThemedText>
+    </View> : <>
+    <View style={styles.heading}>
+      <ThemedText type="title" style={styles.title}>Subscription</ThemedText>
+      <ThemedText color={muted}>Simple monthly access</ThemedText>
+    </View>
     <View style={[styles.card, { backgroundColor: surface, borderColor: border }]}>
-      <ThemedText type="subtitle">Armament account</ThemedText>
-      <ThemedText color={muted}>{subscriptionActive ? "Active until " + expiry.toLocaleDateString() : businessCoverage.length ? `Covered through ${businessCoverage.length} authorised business${businessCoverage.length === 1 ? "" : "es"}.` : subscription?.status ? "Status: " + subscription.status : "No active subscription."}</ThemedText>
-      <ThemedText type="tiny" color={muted}>The verified account subscription covers authorised business members in Fynage, Murimi and Tengesa. Referral credits add one month.</ThemedText>
+      <View style={styles.priceBlock}>
+        <ThemedText type="title" style={styles.price}>$1</ThemedText>
+        <ThemedText color={muted}>per month</ThemedText>
+      </View>
+      {subscriptionActive ? <ThemedText color={muted} style={styles.centerText}>Your subscription is active until {expiry.toLocaleDateString()}.</ThemedText> : <ThemedText color={muted} style={styles.centerText}>{subscription?.status ? "Your subscription is not currently active." : "Choose a payment method to get started."}</ThemedText>}
+      <View style={styles.methodsBlock}>
+        <ThemedText type="defaultSemiBold">Payment method</ThemedText>
+        <View style={styles.paymentMethods}>
+          {(["ecocash", "card"] as const).map((method) => {
+            const selected = paymentMethod === method;
+            return <Pressable key={method} accessibilityRole="button" accessibilityState={{ selected }} onPress={() => { setPaymentMethod(method); setError(""); }} style={[styles.methodTab, { borderColor: selected ? accent : border, backgroundColor: selected ? `${accent}20` : surface }]}>
+              <ThemedText numberOfLines={1} adjustsFontSizeToFit color={selected ? accent : text} type={selected ? "defaultSemiBold" : "default"}>
+                {method === "ecocash" ? "EcoCash" : "Visa / Mastercard"}
+              </ThemedText>
+            </Pressable>;
+          })}
+        </View>
+        {paymentMethod === "ecocash" ? <>
+          <ThemedText type="tiny" color={muted}>EcoCash mobile number</ThemedText>
+          <TextInput value={ecocashNumber} onChangeText={setEcocashNumber} keyboardType="phone-pad" autoComplete="tel" maxLength={18} placeholder="077 123 4567" placeholderTextColor={muted} style={[styles.input, { backgroundColor: inputBackground, color: text, borderColor: border }]} />
+        </> : <ThemedText type="tiny" color={muted}>You’ll enter your card details securely on Paynow.</ThemedText>}
+      </View>
+      {subscriptionActive ? <Pressable style={[styles.button, { borderColor: accent, borderWidth: 1 }]} onPress={() => router.replace("/")}><ThemedText color={accent}>Continue to Fynage</ThemedText></Pressable> : null}
+      {paymentStatus ? <ThemedText type="tiny" color={muted}>Latest payment: {paymentStatus}</ThemedText> : null}
+      {paymentId && paymentStatus !== "paid" ? <Pressable disabled={busy} style={[styles.button, { borderColor: accent, borderWidth: 1, opacity: busy ? 0.6 : 1 }]} onPress={() => void checkPayment()}><ThemedText color={accent}>{busy ? "Checking payment…" : "Check Paynow payment status"}</ThemedText></Pressable> : null}
       {error ? <ThemedText color="#a33">{error}</ThemedText> : null}
-      {canSubscribe ? <Pressable disabled={busy} style={[styles.button, { backgroundColor: accent, opacity: busy ? 0.6 : 1 }]} onPress={() => void pay()}><ThemedText color="#fff">{busy ? "Please wait…" : subscriptionActive ? "Renew for US$1" : "Subscribe for US$1"}</ThemedText></Pressable> : <ThemedText type="tiny" color={muted}>Your business owner manages the subscription for your access.</ThemedText>}
-      <ThemedText color={muted}>Available referral credits: {credits}</ThemedText>
-      <Pressable disabled={busy || credits < 1} style={[styles.button, { borderColor: accent, borderWidth: 1, opacity: busy || credits < 1 ? 0.5 : 1 }]} onPress={() => void redeem()}><ThemedText color={accent}>Redeem one month credit</ThemedText></Pressable>
+      <Pressable disabled={busy || paymentStatus === "pending"} style={[styles.button, { backgroundColor: "#12315C", opacity: busy || paymentStatus === "pending" ? 0.6 : 1 }]} onPress={() => void pay()}><ThemedText color="#fff" type="defaultSemiBold">{busy ? "Please wait…" : paymentStatus === "pending" ? "Payment pending" : ["failed", "cancelled", "error", "rejected", "expired"].includes(paymentStatus) ? "Try again" : subscriptionActive ? "Renew for $1" : "Subscribe for $1"}</ThemedText></Pressable>
+      {!subscriptionActive ? <Pressable style={[styles.skipButton, { borderColor: border }]} onPress={() => { skipSubscription(); router.replace("/"); }}><ThemedText color={muted}>Skip for now</ThemedText></Pressable> : null}
     </View>
-    <View style={[styles.card, { backgroundColor: surface, borderColor: border }]}>
-      <ThemedText type="subtitle">Your referral code</ThemedText>
-      <ThemedText selectable type="defaultSemiBold" color={accent}>{referralCode || "Loading…"}</ThemedText>
-      <ThemedText type="tiny" color={muted}>A reward is issued once a referred account completes its first verified subscription payment.</ThemedText>
-      <TextInput value={codeInput} onChangeText={setCodeInput} autoCapitalize="characters" placeholder="Enter a referral code" style={styles.input} />
-      <Pressable disabled={busy} style={[styles.button, { backgroundColor: accent, opacity: busy ? 0.6 : 1 }]} onPress={() => void attribute()}><ThemedText color="#fff">Apply referral code</ThemedText></Pressable>
+    </>}
     </View>
-  </ScrollView></ScreenWrapper>;
+    </ScrollView>
+    <View style={[styles.bottomTabs, { backgroundColor: background, borderTopColor: border, paddingBottom: Math.max(bottom, 10) }]}>
+      {(["subscription", "about"] as const).map((tab) => {
+        const selected = activeTab === tab;
+        return <Pressable key={tab} accessibilityRole="tab" accessibilityState={{ selected }} onPress={() => setActiveTab(tab)} style={styles.bottomTab}>
+          <Ionicons name={tab === "subscription" ? "card-outline" : "information-circle-outline"} size={22} color={selected ? accent : iconColor} />
+          <ThemedText color={selected ? accent : iconColor} type={selected ? "defaultSemiBold" : "tiny"}>{tab === "subscription" ? "Subscription" : "About"}</ThemedText>
+        </Pressable>;
+      })}
+    </View>
+  </View></ScreenWrapper>;
 }
 
-const styles = StyleSheet.create({ page: { padding: 18, gap: 14 }, card: { borderWidth: 1, borderRadius: 14, padding: 15, gap: 11 }, button: { minHeight: 46, borderRadius: 9, alignItems: "center", justifyContent: "center", paddingHorizontal: 14 }, input: { minHeight: 46, borderWidth: 1, borderColor: "#cbd5ce", borderRadius: 9, backgroundColor: "#fff", paddingHorizontal: 12, color: "#1c2921" } });
+const styles = StyleSheet.create({
+  screen: { flex: 1 },
+  page: { flexGrow: 1, justifyContent: "center", padding: 20 },
+  content: { width: "100%", maxWidth: 440, alignSelf: "center", gap: 20 },
+  bottomTabs: { flexDirection: "row", borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 8 },
+  bottomTab: { flex: 1, minHeight: 48, alignItems: "center", justifyContent: "center", gap: 2 },
+  heading: { alignItems: "center", gap: 5 },
+  title: { fontSize: 28, textAlign: "center" },
+  card: { width: "100%", borderWidth: 1, borderRadius: 20, padding: 22, gap: 18, shadowColor: "#000", shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.08, shadowRadius: 16, elevation: 3 },
+  aboutCard: { minHeight: 220, justifyContent: "center" },
+  aboutTitle: { fontSize: 25, textAlign: "center" },
+  aboutText: { fontSize: 16, lineHeight: 25, textAlign: "center" },
+  priceBlock: { alignItems: "center", paddingVertical: 4, gap: 1 },
+  price: { fontSize: 46, lineHeight: 54, textAlign: "center" },
+  centerText: { textAlign: "center" },
+  methodsBlock: { gap: 10 },
+  paymentMethods: { flexDirection: "row", gap: 10 },
+  methodTab: { flex: 1, minHeight: 60, borderWidth: 1.5, borderRadius: 12, alignItems: "center", justifyContent: "center", paddingHorizontal: 8 },
+  button: { minHeight: 52, borderRadius: 12, alignItems: "center", justifyContent: "center", paddingHorizontal: 16, shadowColor: "#12315C", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.18, shadowRadius: 8, elevation: 2 },
+  skipButton: { minHeight: 44, borderWidth: 1, borderRadius: 12, alignItems: "center", justifyContent: "center", paddingHorizontal: 16 },
+  input: { minHeight: 50, borderWidth: 1, borderRadius: 11, paddingHorizontal: 14, fontSize: 16 },
+});

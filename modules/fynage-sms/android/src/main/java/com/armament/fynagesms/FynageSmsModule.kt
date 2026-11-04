@@ -19,9 +19,16 @@ class FynageSmsModule : Module() {
       }
       val rows = mutableListOf<Map<String, Any?>>()
       val projection = arrayOf(Telephony.Sms._ID, Telephony.Sms.ADDRESS, Telephony.Sms.BODY, Telephony.Sms.DATE)
-      val selection = "${Telephony.Sms.DATE} >= ?"
+      val selection = "${Telephony.Sms.DATE} >= ? AND (" +
+        "${Telephony.Sms.ADDRESS} LIKE '%263143%' OR ${Telephony.Sms.ADDRESS} LIKE '%263164%' OR " +
+        "LOWER(${Telephony.Sms.ADDRESS}) LIKE '%ecocash%' OR LOWER(${Telephony.Sms.ADDRESS}) LIKE '%econet%' OR " +
+        "LOWER(${Telephony.Sms.BODY}) LIKE '%ecocash%' OR LOWER(${Telephony.Sms.BODY}) LIKE '%econet%' OR LOWER(${Telephony.Sms.BODY}) LIKE '%innbucks%' OR " +
+        "LOWER(${Telephony.Sms.ADDRESS}) LIKE '%cbz%' OR LOWER(${Telephony.Sms.ADDRESS}) LIKE '%cabs%' OR LOWER(${Telephony.Sms.ADDRESS}) LIKE '%fbc%' OR " +
+        "LOWER(${Telephony.Sms.ADDRESS}) LIKE '%stanbic%' OR LOWER(${Telephony.Sms.ADDRESS}) LIKE '%steward%' OR LOWER(${Telephony.Sms.ADDRESS}) LIKE '%nmb%' OR " +
+        "LOWER(${Telephony.Sms.ADDRESS}) LIKE '%posb%' OR LOWER(${Telephony.Sms.ADDRESS}) LIKE '%ecobank%' OR LOWER(${Telephony.Sms.ADDRESS}) LIKE '%bancabc%' OR " +
+        "LOWER(${Telephony.Sms.ADDRESS}) LIKE '%zb bank%' OR LOWER(${Telephony.Sms.ADDRESS}) LIKE '%first capital%')"
       val selectionArgs = arrayOf(minDate.toLong().toString())
-      val sortOrder = "${Telephony.Sms.DATE} ASC LIMIT ${pageSize.coerceIn(1, 500)} OFFSET ${offset.coerceAtLeast(0)}"
+      val sortOrder = "${Telephony.Sms.DATE} ASC LIMIT ${pageSize.coerceIn(1, 250)} OFFSET ${offset.coerceAtLeast(0)}"
       context.contentResolver.query(Telephony.Sms.Inbox.CONTENT_URI, projection, selection, selectionArgs, sortOrder)?.use { cursor ->
         val idIndex = cursor.getColumnIndexOrThrow(Telephony.Sms._ID)
         val addressIndex = cursor.getColumnIndexOrThrow(Telephony.Sms.ADDRESS)

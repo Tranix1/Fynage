@@ -1,8 +1,8 @@
 const tintColorLight = '#0a7ea4';
 const tintColorDark = '#fff';
 
-const accent = '#27C4B0';
-const accentlight = '#27C4B01A' ;
+const accent = '#70C8F5';
+const accentlight = '#70C8F51A';
 
 const coolGray = '#C4C4C4';
 
@@ -28,6 +28,14 @@ export const Colors = {
 
     background: '#F9F9F9',
     backgroundLight: '#F0EFEF',
+    surface: '#FFFFFF',
+    input: '#FFFFFF',
+    subtle: '#E6F0E9',
+    selection: '#DFF3FF',
+    incomeSelection: '#EAF5EE',
+    moneyIn: '#18804B',
+    warningBackground: '#FFF1D8',
+    warningText: '#624816',
 
     tint: tintColorLight,
 
@@ -72,6 +80,14 @@ export const Colors = {
 
     background: '#0f0e11',
     backgroundLight: '#222425',
+    surface: '#191a1d',
+    input: '#191a1d',
+    subtle: '#252b28',
+    selection: '#15364A',
+    incomeSelection: '#193629',
+    moneyIn: '#62D99B',
+    warningBackground: '#3B301B',
+    warningText: '#F2D58A',
 
     tint: tintColorDark,
 

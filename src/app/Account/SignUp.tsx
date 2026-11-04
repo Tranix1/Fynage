@@ -286,7 +286,7 @@ const Index = ({ setDspLoginOrSignup, setIsSigningUp }: any) => {
                             Create Account
                         </ThemedText>
                         <ThemedText style={styles.subHeader} color={coolGray}>
-                            Join Transix and access smart transport solutions
+                            Create your Fynage account to manage your finances
                         </ThemedText>
                     </View>
 

@@ -1,8 +1,30 @@
 import React, { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
-import { Stack } from "expo-router";
-import { AuthProvider } from "@/context/AuthContext";
+import { Stack, usePathname, useRouter } from "expo-router";
+import { AuthProvider, useAuth } from "@/context/AuthContext";
 import { getDatabase } from "@/db/database";
+
+function AccessGate() {
+  const { user, isLoading, subscriptionAccess, subscriptionSkipped } = useAuth();
+  const pathname = usePathname();
+  const router = useRouter();
+  const isSubscriptionScreen = pathname === "/Subscription";
+
+  useEffect(() => {
+    if (isLoading || subscriptionAccess === "checking") return;
+    if (!user && pathname !== "/") {
+      router.replace("/");
+    } else if (user && subscriptionAccess !== "active" && !subscriptionSkipped && !isSubscriptionScreen) {
+      router.replace("/Subscription");
+    }
+  }, [isLoading, isSubscriptionScreen, pathname, router, subscriptionAccess, subscriptionSkipped, user]);
+
+  const mustWait = isLoading || (subscriptionAccess === "checking" && !isSubscriptionScreen) ||
+    (!user && pathname !== "/") || (user && subscriptionAccess !== "active" && !subscriptionSkipped && !isSubscriptionScreen);
+  if (mustWait) return <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}><ActivityIndicator /></View>;
+
+  return <Stack screenOptions={{ headerShown: false }} />;
+}
 
 export default function RootLayout() {
   const [databaseState, setDatabaseState] = useState<"loading" | "ready" | "failed">("loading");
@@ -36,11 +58,7 @@ export default function RootLayout() {
 
   return (
     <AuthProvider>
-      <Stack
-        screenOptions={{
-          headerShown: false,
-        }}
-      />
+      <AccessGate />
     </AuthProvider>
   );
 }
