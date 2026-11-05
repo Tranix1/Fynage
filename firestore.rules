@@ -1,6 +1,13 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    match /plans/{planId} {
+      allow read: if owns(resource.data.ownerId);
+      allow create, update: if owns(request.resource.data.ownerId)
+        && request.resource.data.id == planId
+        && request.resource.data.businessId is string;
+      allow delete: if owns(resource.data.ownerId);
+    }
     function owns(userId) {
       return request.auth != null && request.auth.uid == userId;
     }
@@ -152,6 +159,14 @@ service cloud.firestore {
         && request.resource.data.id == accountId
         && request.resource.data.businessId is string;
       allow delete: if false;
+    }
+    match /users/{userId}/financial_plans/{planId} {
+      allow read: if owns(userId) && resource.data.ownerId == userId;
+      allow create, update: if owns(userId)
+        && request.resource.data.ownerId == userId
+        && request.resource.data.id == planId
+        && request.resource.data.businessId is string;
+      allow delete: if owns(userId) && resource.data.ownerId == userId;
     }
 
     // Each Tengesa business is a Firestore document. Operational collections

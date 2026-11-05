@@ -12,15 +12,12 @@ import Input from '@/components/Input';
 import {
     EvilIcons,
     Ionicons,
-    MaterialCommunityIcons,
-    FontAwesome5,
 } from '@expo/vector-icons';
 import { hp, wp } from '@/constants/common';
 import { useThemeColor } from '@/hooks/useThemeColor';
 import { ThemedText } from '@/components/ThemedText';
 import { Image } from 'expo-image';
 import { useAuth } from '@/context/AuthContext';
-import { AccountType } from '@/types/types';
 import { router } from 'expo-router';
 import { firebaseConfig } from '@/db/fireBaseConfig';
 
@@ -31,26 +28,13 @@ import { getAuth, signInWithPhoneNumber } from "@react-native-firebase/auth";
 import { phoneAuthError, toE164 } from '@/services/auth/phoneNumber';
 
 
-const ACCOUNT_TYPES: {
-    key: AccountType;
-    label: string;
-    icon: (color: string) => React.ReactNode;
-}[] = [
-        { key: 'tracking', label: 'Tracking', icon: (c) => <Ionicons name="location" size={20} color={c} /> },
-        { key: 'fleet', label: 'Fleet', icon: (c) => <FontAwesome5 name="truck" size={17} color={c} /> },
-        { key: 'driver', label: 'Driver', icon: (c) => <Ionicons name="person" size={20} color={c} /> },
-        { key: 'brokerage', label: 'Broker', icon: (c) => <MaterialCommunityIcons name="briefcase-outline" size={20} color={c} /> },
-    ];
-
 const Index = ({ setDspLoginOrSignup, setIsSigningUp }: any) => {
     const [fullname, setFullName] = useState('');
     const [referrerCode, setReferrerCode] = useState('');
     const [acceptTerms, setAcceptTerms] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const [selectedAccount, setSelectedAccount] = useState<AccountType | null>(null);
     const [loading, setLoading] = useState(false);
 
-    const backgroundLight = useThemeColor('backgroundLight');
     const icon = useThemeColor('icon');
     const accent = useThemeColor('accent');
     const coolGray = useThemeColor('coolGray');
@@ -99,8 +83,6 @@ const Index = ({ setDspLoginOrSignup, setIsSigningUp }: any) => {
 
     const { signUp, } = useAuth();
 
-    const handleAccountSelect = (type: AccountType) => setSelectedAccount(type);
-
     // const verificationId = await provider.verifyPhoneNumber(
     //     phoneNumber,
     // );
@@ -111,7 +93,7 @@ const Index = ({ setDspLoginOrSignup, setIsSigningUp }: any) => {
         try {
             setLoading(true);
 
-            trackEventFirebase("otp_sent", { accountType: selectedAccount }).catch(console.error);
+            trackEventFirebase("otp_sent", { accountType: "tracking" }).catch(console.error);
 
             const length = phoneNumber.replace(/\D/g, "").length;
 
@@ -122,12 +104,6 @@ const Index = ({ setDspLoginOrSignup, setIsSigningUp }: any) => {
                 return;
             }
 
-                 if (! selectedAccount) {
-            setError("Please select Account Type");
-            setLoading(false);
-            
-            return;
-        }
             if (countryCode.name === "+267") {
                 if (length !== 8) {
                     setError("Botswana phone number must be 8 digits");
@@ -152,7 +128,7 @@ const Index = ({ setDspLoginOrSignup, setIsSigningUp }: any) => {
                 return;
             }
 
-            if (selectedAccount !== "tracking" && referrerCode) {
+            if (referrerCode) {
                 const normalizedCode = referrerCode.trim().toUpperCase();
 
                 const validation = await validateReferralCode(normalizedCode);
@@ -198,11 +174,6 @@ const Index = ({ setDspLoginOrSignup, setIsSigningUp }: any) => {
             return;
         }
 
-          if (! selectedAccount) {
-            setError("Please select Account Type");
-            return;
-        }
-        
         if (!confirmation) {
             setError("OTP session expired. Please request a new code.");
             return;
@@ -224,7 +195,6 @@ const Index = ({ setDspLoginOrSignup, setIsSigningUp }: any) => {
                 phoneNumber: toE164(phoneNumber, countryCode.name),
                 verificationId,
                 referrerCode,
-                accountType: selectedAccount,
                 displayName: fullname,
                 referralValidation,
                 countryCode: countryCode.name,
@@ -233,15 +203,7 @@ const Index = ({ setDspLoginOrSignup, setIsSigningUp }: any) => {
             
             if (result.success) {
                 Alert.alert("Account created", "Your account is ready.");
-                if (selectedAccount === "fleet") {
-                    router.replace("/");
-                } else if (selectedAccount === "brokerage") {
-                    router.replace("/");
-                } else if (selectedAccount === "driver") {
-                    router.replace("/");
-                } else {
-                    router.push("/");
-                }
+                router.replace("/");
             } else {
                 setError(result.message || "Signup failed. Please try again.");
             }
@@ -288,45 +250,7 @@ const Index = ({ setDspLoginOrSignup, setIsSigningUp }: any) => {
                         <ThemedText style={styles.subHeader} color={coolGray}>
                             Create your Fynage account to manage your finances
                         </ThemedText>
-                    </View>
-
-                    {/* ACCOUNT SELECTION */}
-                    <View style={styles.accountContainer}>
-                        <ThemedText style={styles.accountTitle} color={coolGray}>
-                            Select Account Type
-                        </ThemedText>
-
-                        <View style={styles.accountGrid}>
-                            {ACCOUNT_TYPES.map(({ key, label, icon: renderIcon }) => {
-                                const selected = selectedAccount === key;
-                                return (
-                                    <TouchableOpacity
-                                        key={key}
-                                        activeOpacity={0.85}
-                                        onPress={() => handleAccountSelect(key)}
-                                        style={[
-                                            styles.accountButton,
-                                            {
-                                                backgroundColor: selected ? accent : backgroundLight,
-                                                borderColor: selected ? accent : 'rgba(128,128,128,0.25)',
-                                                shadowOpacity: selected ? 0.15 : 0,
-                                                elevation: selected ? 3 : 0,
-                                            },
-                                        ]}
-                                    >
-                                        {renderIcon(selected ? '#fff' : icon)}
-                                        <ThemedText
-                                            style={[
-                                                styles.accountButtonLabel,
-                                                {color :selected ? '#fff' : undefined}
-                                            ]}
-                                        >
-                                            {label}
-                                        </ThemedText>
-                                    </TouchableOpacity>
-                                );
-                            })}
-                        </View>
+                        <ThemedText type="tiny" color={coolGray}>From Armament</ThemedText>
                     </View>
 
                     {error && (
@@ -363,8 +287,7 @@ const Index = ({ setDspLoginOrSignup, setIsSigningUp }: any) => {
                     />
 
 
-                    {selectedAccount !== 'tracking' && (
-                        <View>
+                    <View>
                             <ThemedText style={styles.label}>Referral Code </ThemedText>
                             <Input
                                 containerStyles={styles.input}
@@ -375,8 +298,7 @@ const Index = ({ setDspLoginOrSignup, setIsSigningUp }: any) => {
                                 editable={!otpSent}
 
                             />
-                        </View>
-                    )}
+                    </View>
                     {otpSent && (
                         <>
                             <ThemedText style={styles.label}>OTP Code</ThemedText>

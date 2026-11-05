@@ -1,5 +1,5 @@
 import { getDatabase, withDatabaseTransaction } from "@/db/database";
-import type { FinancialAccount, FinancialAuditEntry, FinancialCategory, FinancialCategoryWithSync, FinancialRecord, FinancialRecordWithSync, TransactionKind } from "@/types/finance";
+import type { FinancialAccount, FinancialAuditEntry, FinancialCategory, FinancialCategoryWithSync, FinancialRecord, FinancialRecordWithSync, TransactionDirection, TransactionKind } from "@/types/finance";
 import { dedupeLedgerRecords, getSharedLedgerRecordId } from "@/services/finance/ledgerIdentity";
 import { mergeRemoteFinancialTombstone } from "@/services/finance/tombstones";
 export { dedupeLedgerRecords } from "@/services/finance/ledgerIdentity";
@@ -292,15 +292,16 @@ export async function listFinancialCategories(ownerId: string, businessId: strin
   return rows.map((row) => ({ ...JSON.parse(row.payload) as FinancialCategory, syncStatus: row.sync_status }));
 }
 
-export async function saveFinancialCategory(ownerId: string, businessId: string, name: string, id?: string): Promise<FinancialCategory> {
+export async function saveFinancialCategory(ownerId: string, businessId: string, name: string, direction: Exclude<TransactionDirection, "transfer">, id?: string): Promise<FinancialCategory> {
   const normalizedName = name.trim().replace(/\s+/g, " ");
   if (!normalizedName || normalizedName.length > 48) throw new Error("Category name must be between 1 and 48 characters.");
   const timestamp = now();
-  const categoryId = id ?? `${businessId}_cat_${normalizedName.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "")}`;
+  const categoryKey = normalizedName.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+  const categoryId = id ?? `${businessId}_${direction}_cat_${categoryKey}`;
   return withDatabaseTransaction(async (db) => {
     const old = await db.getFirstAsync<{ payload: string; revision: number }>("SELECT payload,revision FROM financial_categories WHERE owner_id=? AND business_id=? AND category_id=?", ownerId, businessId, categoryId);
     const previous = old ? JSON.parse(old.payload) as FinancialCategory : undefined;
-    const category: FinancialCategory = { id: categoryId, ownerId, businessId, name: normalizedName, archived: previous?.archived ?? false, updatedAt: timestamp, revision: (old?.revision ?? 0) + 1 };
+    const category: FinancialCategory = { id: categoryId, ownerId, businessId, name: normalizedName, direction, archived: previous?.archived ?? false, updatedAt: timestamp, revision: (old?.revision ?? 0) + 1 };
     const payload = JSON.stringify(category);
     await db.runAsync("INSERT INTO financial_categories(owner_id,business_id,category_id,payload,revision,sync_status,updated_at) VALUES(?,?,?,?,?,'pending',?) ON CONFLICT(owner_id,business_id,category_id) DO UPDATE SET payload=excluded.payload,revision=excluded.revision,sync_status='pending',updated_at=excluded.updated_at", ownerId, businessId, categoryId, payload, category.revision, timestamp);
     await db.runAsync("INSERT INTO category_sync_queue(owner_id,business_id,category_id,payload,revision,attempts,retry_at,queued_at) VALUES(?,?,?,?,?,0,0,?) ON CONFLICT(owner_id,business_id,category_id) DO UPDATE SET payload=excluded.payload,revision=excluded.revision,attempts=0,retry_at=0,queued_at=excluded.queued_at", ownerId, businessId, categoryId, payload, category.revision, timestamp);

@@ -59,7 +59,7 @@ export type AuthResponse = {
 export type LoginInput = {
   phoneNumber: string;
   verificationId?: string;
-  accountType: AccountType;
+  accountType?: AccountType;
 };
 
 export type SignUpInput = LoginInput & {

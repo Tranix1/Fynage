@@ -16,12 +16,8 @@ import { ThemedText } from '@/components/ThemedText';
 import { Image } from 'expo-image';
 import { useAuth } from '@/context/AuthContext';
 import {
-    MaterialCommunityIcons,
-    FontAwesome5,
     Ionicons,
-    EvilIcons,
 } from '@expo/vector-icons';
-import { AccountType } from '@/types/types';
 import PhoneInput from '@/components/PhoneInput';
 import { trackScreen } from '@/services/analytics/firebaseAnalystics';
 import { phoneAuthError, toE164 } from '@/services/auth/phoneNumber';
@@ -32,23 +28,10 @@ import {
 } from '@react-native-firebase/auth';
 const auth = getAuth();
 
-const ACCOUNT_TYPES: {
-    key: AccountType;
-    label: string;
-    icon: (color: string) => React.ReactNode;
-}[] = [
-        { key: 'tracking', label: 'Tracking', icon: (c) => <Ionicons name="location" size={20} color={c} /> },
-        { key: 'fleet', label: 'Fleet', icon: (c) => <FontAwesome5 name="truck" size={17} color={c} /> },
-        { key: 'driver', label: 'Driver', icon: (c) => <Ionicons name="person" size={20} color={c} /> },
-        { key: 'brokerage', label: 'Broker', icon: (c) => <MaterialCommunityIcons name="briefcase-outline" size={20} color={c} /> },
-    ];
-
 const Login = ({ setDspLoginOrSignup }: any) => {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const [selectedAccount, setSelectedAccount] = useState<AccountType | null>(null);
 
-    const backgroundLight = useThemeColor('backgroundLight');
     const icon = useThemeColor('icon');
     const accent = useThemeColor('accent');
     const coolGray = useThemeColor('coolGray');
@@ -92,8 +75,6 @@ const Login = ({ setDspLoginOrSignup }: any) => {
 
     const { Login: loginUser } = useAuth();
 
-    const handleAccountSelect = (type: AccountType) => setSelectedAccount(type);
-
     const sendPhoneOTP = async () => {
         try {
             const length = phoneNumber.replace(/\D/g, '').length;
@@ -102,11 +83,6 @@ const Login = ({ setDspLoginOrSignup }: any) => {
                 setError('Select a country code');
                 return;
             }
-                 if (! selectedAccount) {
-            setError("Please select Account Type");
-            return;
-        }
-
             if (countryCode.name === '+267') {
                 if (length !== 8) {
                     setError('Botswana phone number must be 8 digits');
@@ -153,11 +129,6 @@ const Login = ({ setDspLoginOrSignup }: any) => {
             setError('OTP session expired. Please request a new code.');
             return;
         }
-             if (! selectedAccount) {
-            setError("Please select Account Type");
-            return;
-        }
-
         setError(null);
         setLoading(true);
 
@@ -167,7 +138,6 @@ const Login = ({ setDspLoginOrSignup }: any) => {
 
             const res = await loginUser({
                 phoneNumber: toE164(phoneNumber, countryCode.name),
-                accountType: selectedAccount,
             });
 
             if (!res.success) {
@@ -209,45 +179,7 @@ const Login = ({ setDspLoginOrSignup }: any) => {
                         <ThemedText style={styles.subHeader} color={coolGray}>
                             Login to continue using Fynage
                         </ThemedText>
-                    </View>
-
-                    {/* Account type selector */}
-                    <View style={styles.accountContainer}>
-                        <ThemedText style={styles.accountTitle} color={coolGray}>
-                            Select Account Type
-                        </ThemedText>
-
-                        <View style={styles.accountGrid}>
-                            {ACCOUNT_TYPES.map(({ key, label, icon: renderIcon }) => {
-                                const selected = selectedAccount === key;
-                                return (
-                                    <TouchableOpacity
-                                        key={key}
-                                        activeOpacity={0.85}
-                                        onPress={() => handleAccountSelect(key)}
-                                        style={[
-                                            styles.accountButton,
-                                            {
-                                                backgroundColor: selected ? accent : backgroundLight,
-                                                borderColor: selected ? accent : 'rgba(128,128,128,0.25)',
-                                                shadowOpacity: selected ? 0.15 : 0,
-                                                elevation: selected ? 3 : 0,
-                                            },
-                                        ]}
-                                    >
-                                        {renderIcon(selected ? '#fff' : icon)}
-                                        <ThemedText
-                                            style={[
-                                                styles.accountButtonLabel,
-                                                {color:selected ? '#fff' : undefined}
-                                            ]}
-                                        >
-                                            {label}
-                                        </ThemedText>
-                                    </TouchableOpacity>
-                                );
-                            })}
-                        </View>
+                        <ThemedText type="tiny" color={coolGray}>From Armament</ThemedText>
                     </View>
 
                     {error && (

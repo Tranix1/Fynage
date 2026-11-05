@@ -64,6 +64,7 @@ export type FinancialRecordWithSync = FinancialRecord & { syncStatus: FinancialS
 
 export type FinancialCategory = {
   id: string; ownerId: string; businessId: string; name: string;
+  direction?: Exclude<TransactionDirection, "transfer">;
   archived: boolean; updatedAt: string; revision: number;
 };
 
