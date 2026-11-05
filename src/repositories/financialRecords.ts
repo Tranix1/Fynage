@@ -36,6 +36,14 @@ export function normalizeLedgerRecord(input: Partial<FinancialRecord>, fallbackO
     category: input.category ?? "General",
     description: input.description ?? "Shared ledger entry",
     occurredAt: input.occurredAt ?? new Date().toISOString(),
+    affectsBalance: input.affectsBalance !== false,
+    provider: input.provider,
+    availableBalanceMinor: input.availableBalanceMinor,
+    sourceDetails: input.sourceDetails,
+    linkedSmsDetails: input.linkedSmsDetails,
+    balanceBeforeMinor: input.balanceBeforeMinor,
+    balanceAfterMinor: input.balanceAfterMinor,
+    reconciliationDifferenceMinor: input.reconciliationDifferenceMinor,
     createdAt: input.createdAt ?? new Date().toISOString(),
     updatedAt: input.updatedAt ?? new Date().toISOString(),
     deletedAt: input.deletedAt ?? null,
@@ -67,8 +75,10 @@ export async function listFinancialAccounts(ownerId: string, businessId: string)
 
 export async function ensureDefaultFinancialAccounts(ownerId: string, businessId: string): Promise<void> {
   const current = await listFinancialAccounts(ownerId, businessId);
-  const defaults: { id: string; name: string; type: FinancialAccount["type"] }[] = [
+  const defaults: { id: string; name: string; type: FinancialAccount["type"]; currency?: string }[] = [
     { id: "account_cash", name: "Cash", type: "cash" },
+    { id: "account_cash_zwg", name: "Cash ZWG", type: "cash", currency: "ZWG" },
+    { id: "account_cash_zar", name: "Cash ZAR", type: "cash", currency: "ZAR" },
     { id: "account_ecocash", name: "EcoCash", type: "mobile_money" },
     { id: "account_innbucks", name: "InnBucks", type: "mobile_money" },
     { id: "account_bank", name: "Bank", type: "bank" },
@@ -157,7 +167,7 @@ export async function saveFinancialRecord(input: FinancialRecord): Promise<Finan
       if (duplicate) { classificationStatus = "potential_duplicate"; record.potentialDuplicateOf = duplicate.record_id; }
     }
     const oldRecord = old ? JSON.parse(old.payload) as FinancialRecord : undefined;
-    const auditFields: (keyof FinancialRecord)[] = ["type", "direction", "amountMinor", "currency", "category", "description", "occurredAt", "accountId", "toAccountId", "account", "toAccount", "counterparty", "reference", "notes", "principalMinor", "interestMinor", "feeMinor", "assetValueMinor", "liabilityMinor", "classificationStatus"];
+    const auditFields: (keyof FinancialRecord)[] = ["type", "direction", "amountMinor", "currency", "category", "description", "occurredAt", "affectsBalance", "balanceBeforeMinor", "balanceAfterMinor", "reconciliationDifferenceMinor", "accountId", "toAccountId", "account", "toAccount", "counterparty", "reference", "notes", "principalMinor", "interestMinor", "feeMinor", "assetValueMinor", "liabilityMinor", "classificationStatus"];
     const changes = oldRecord ? auditFields.filter((field) => JSON.stringify(oldRecord[field]) !== JSON.stringify(record[field])).map((field) => ({ field, ...(oldRecord[field] !== undefined ? { from: oldRecord[field] } : {}), ...(record[field] !== undefined ? { to: record[field] } : {}) })) : [];
     const auditEntry: FinancialAuditEntry | undefined = !oldRecord
       ? { id: `audit_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`, action: "created", changedAt: timestamp, actorId: record.ownerId, reason: record.notes }

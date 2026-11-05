@@ -1,134 +1,37 @@
-import { doc, setDoc, getDoc } from 'firebase/firestore';
-import { db } from '@/db/fireBaseConfig';
+import { doc, getDoc, setDoc, writeBatch } from "firebase/firestore";
+import { db } from "@/db/fireBaseConfig";
 
-interface AppVersionConfig {
-    version: string;
-    minVersion: string;
-    updateMessage: string;
-    lastUpdated: Date;
+export type ManagedAppId = "fynage" | "murimi" | "tengesa";
+export interface AppVersionConfig { appId?: ManagedAppId; appName?: string; version: string; minVersion: string; updateMessage?: string; updateUrl?: string; androidUrl?: string; iosUrl?: string; enabled?: boolean; lastUpdated?: Date; }
+const appNames: Record<ManagedAppId, string> = { fynage: "Fynage", murimi: "Murimi", tengesa: "Tengesa" };
+const defaultVersion = (appId: ManagedAppId): AppVersionConfig => ({ appId, appName: appNames[appId], version: "1.0.0", minVersion: "1.0.0", updateMessage: `A new version of ${appNames[appId]} is available.`, enabled: true });
+
+/** Reads one app's managed version from the shared Armament appVersions collection. */
+export async function getAppVersion(appId: ManagedAppId = "fynage"): Promise<AppVersionConfig | null> {
+  try { const snapshot = await getDoc(doc(db, "appVersions", appId)); return snapshot.exists() ? { ...defaultVersion(appId), ...snapshot.data(), appId } as AppVersionConfig : null; }
+  catch (error) { console.warn(`Could not read ${appId} app version configuration.`, error); return null; }
 }
 
-/**
- * Set the app version configuration in Firestore
- * This should be called from your admin panel or manually when you want to update the version
- */
-export const setAppVersion = async (versionConfig: AppVersionConfig) => {
-    try {
-        const versionDocRef = doc(db, 'appConfig', 'version');
-        await setDoc(versionDocRef, {
-            ...versionConfig,
-            lastUpdated: new Date(),
-        });
-        console.log('App version updated successfully:', versionConfig);
-        return true;
-    } catch (error) {
-        console.error('Error setting app version:', error);
-        return false;
-    }
-};
-
-/**
- * Get the current app version configuration from Firestore
- */
-export const getAppVersion = async (): Promise<AppVersionConfig | null> => {
-    try {
-        const versionDocRef = doc(db, 'appConfig', 'version');
-        const versionDoc = await getDoc(versionDocRef);
-
-        if (versionDoc.exists()) {
-            return versionDoc.data() as AppVersionConfig;
-        }
-        return null;
-    } catch (error) {
-        console.error('Error getting app version:', error);
-        return null;
-    }
-};
-
-/**
- * Example usage for setting up the initial version
- * Call this function to set up the version document in your database
- */
-export const setupInitialVersion = async () => {
-    const initialVersion: AppVersionConfig = {
-        version: '1.0.1', // Latest version
-        minVersion: '1.0.0', // Minimum version that can still use the app without a force update
-        updateMessage: 'New features and bug fixes available!',
-        lastUpdated: new Date(),
-    };
-
-    return await setAppVersion(initialVersion);
-};
-
-/**
- * Helper function to create version documents for testing
- */
-export const createTestVersions = async () => {
-    // Example: force-update scenario (currentVersion below minVersion triggers 'force')
-    await setAppVersion({
-        version: '1.2.0',
-        minVersion: '1.1.0',
-        updateMessage: 'Critical security update required. Please update immediately.',
-        lastUpdated: new Date(),
-    });
-
-    // Example: optional-update scenario (currentVersion at/above minVersion but below version)
-    await setAppVersion({
-        version: '1.0.2',
-        minVersion: '1.0.0',
-        updateMessage: 'New features and improvements available!',
-        lastUpdated: new Date(),
-    });
-};
-
-// ---------------------------------------------------------------------------
-// Version comparison + update-state resolution
-// ---------------------------------------------------------------------------
-
-export type UpdateType = 'force' | 'optional' | 'none';
-
-export interface VersionInfo {
-    currentVersion: string;
-    minVersion: string;
-    latestVersion: string;
+export async function getSafeAppVersion(appId: ManagedAppId = "fynage"): Promise<AppVersionConfig> {
+  const config = await getAppVersion(appId);
+  return { ...(config ?? defaultVersion(appId)), updateMessage: config?.updateMessage?.trim() || `A new version of ${appNames[appId]} is available.`, enabled: config?.enabled !== false };
 }
 
-/**
- * Compares two version strings.
- * Returns: -1 if a < b, 0 if a === b, 1 if a > b.
- * Handles version strings of any segment length ("1.2" === "1.2.0").
- */
-export function compareVersions(a: string, b: string): number {
-    const aParts = a.split('.').map((n) => parseInt(n, 10) || 0);
-    const bParts = b.split('.').map((n) => parseInt(n, 10) || 0);
-    const length = Math.max(aParts.length, bParts.length);
-
-    for (let i = 0; i < length; i++) {
-        const aSeg = aParts[i] ?? 0;
-        const bSeg = bParts[i] ?? 0;
-        if (aSeg > bSeg) return 1;
-        if (aSeg < bSeg) return -1;
-    }
-    return 0;
+/** One-time administrator bootstrap. Run once, verify the documents, then remove this function from the build. */
+export async function createInitialAppVersions(): Promise<void> {
+  const batch = writeBatch(db); const now = new Date();
+  (Object.keys(appNames) as ManagedAppId[]).forEach((appId) => batch.set(doc(db, "appVersions", appId), { ...defaultVersion(appId), lastUpdated: now }, { merge: true }));
+  await batch.commit();
 }
 
+/** Admin-only helper for changing one app without touching the other apps. */
+export async function setAppVersion(appId: ManagedAppId, versionConfig: Omit<AppVersionConfig, "appId" | "appName" | "lastUpdated">): Promise<void> {
+  await setDoc(doc(db, "appVersions", appId), { ...versionConfig, appId, appName: appNames[appId], lastUpdated: new Date() }, { merge: true });
+}
+
+export type UpdateType = "force" | "optional" | "none";
+export interface VersionInfo { currentVersion: string; minVersion: string; latestVersion: string; }
+export function compareVersions(a: string, b: string): number { const aParts = a.split(".").map((n) => parseInt(n, 10) || 0); const bParts = b.split(".").map((n) => parseInt(n, 10) || 0); const length = Math.max(aParts.length, bParts.length); for (let i = 0; i < length; i += 1) { const aSeg = aParts[i] ?? 0; const bSeg = bParts[i] ?? 0; if (aSeg > bSeg) return 1; if (aSeg < bSeg) return -1; } return 0; }
 export const isVersionLessThan = (a: string, b: string): boolean => compareVersions(a, b) < 0;
 export const isVersionGreaterOrEqual = (a: string, b: string): boolean => compareVersions(a, b) >= 0;
-
-/**
- * Resolves the update state a user should see given their current version
- * and the app's configured min/latest versions.
- *
- * - currentVersion < minVersion            -> 'force'
- * - minVersion <= currentVersion < latest  -> 'optional'
- * - currentVersion >= latestVersion        -> 'none'
- */
-export function getUpdateType({ currentVersion, minVersion, latestVersion }: VersionInfo): UpdateType {
-    if (isVersionLessThan(currentVersion, minVersion)) {
-        return 'force';
-    }
-    if (isVersionLessThan(currentVersion, latestVersion)) {
-        return 'optional';
-    }
-    return 'none';
-}
+export function getUpdateType({ currentVersion, minVersion, latestVersion }: VersionInfo): UpdateType { if (isVersionLessThan(currentVersion, minVersion)) return "force"; if (isVersionLessThan(currentVersion, latestVersion)) return "optional"; return "none"; }

@@ -35,6 +35,7 @@ export function calculateAccountBalances(accounts: FinancialAccount[], records: 
   const balances = new Map(accounts.map((account) => [account.id, account.openingBalanceMinor]));
   for (const record of records) {
     if (record.deletedAt || record.classificationStatus === "dismissed" || record.classificationStatus === "potential_duplicate" || record.classificationStatus === "unreviewed") continue;
+    if (record.affectsBalance === false) continue;
     if (record.occurredAt > asOf) continue;
     if (record.type === "opening_balance") continue;
     if (record.type === "transfer" || record.direction === "transfer") {

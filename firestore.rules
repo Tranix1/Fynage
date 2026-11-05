@@ -1,6 +1,18 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    match /appConfig/{configId} {
+      allow read: if request.auth != null && configId == 'version';
+      allow write: if false;
+    }
+    match /appVersions/{appId} {
+      allow read: if request.auth != null && appId in ['fynage', 'murimi', 'tengesa'];
+      // Only Firebase users with the admin custom claim may run the one-time
+      // bootstrap or change release settings. Normal app users are read-only.
+      allow write: if request.auth != null
+        && request.auth.token.admin == true
+        && appId in ['fynage', 'murimi', 'tengesa'];
+    }
     match /plans/{planId} {
       allow read: if owns(resource.data.ownerId);
       allow create, update: if owns(request.resource.data.ownerId)

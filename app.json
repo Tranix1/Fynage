@@ -36,7 +36,7 @@
             "kotlinVersion": "2.2.21",
             "manifestQueries": {
               "package": [
-                "com.yayapana.Murimi",
+                "com.armament.murimi",
                 "com.armament.tengesa",
                 "com.yayapana.TransixNewVersion"
               ]
@@ -60,6 +60,7 @@
         }
       ],
       "expo-sqlite",
+      "expo-notifications",
       "@react-native-firebase/app",
       "@react-native-firebase/auth",
       "@react-native-firebase/analytics",

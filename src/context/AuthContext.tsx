@@ -93,7 +93,7 @@ export type AuthContextValue = {
 
   setupUser: (firebaseUser: { uid: string; phoneNumber: string | null; displayName: string | null; email: string | null; photoURL: string | null } | null, accountType?: AccountType) => Promise<void>;
 
-  updateUserProfile: (displayName: string) => Promise<boolean>;
+  updateUserProfile: (displayName: string, photoURL?: string | null) => Promise<boolean>;
 
   Logout: () => Promise<boolean>;
 };
@@ -342,9 +342,7 @@ export function AuthProvider({
     }
   };
 
-  const updateUserProfile = async (
-    displayName: string
-  ): Promise<boolean> => {
+  const updateUserProfile = async (displayName: string, photoURL?: string | null): Promise<boolean> => {
     try {
       const auth = getAuth();
       const firebaseUser = auth.currentUser;
@@ -354,11 +352,10 @@ export function AuthProvider({
         return false;
       }
 
-      await updateProfile(firebaseUser, {
-        displayName: name,
-      });
-
-      await setupUser(auth.currentUser);
+      await updateProfile(firebaseUser, { displayName: name, photoURL: photoURL ?? firebaseUser.photoURL ?? null });
+      const updatedUser = { uid: firebaseUser.uid, phoneNumber: firebaseUser.phoneNumber, displayName: name, email: firebaseUser.email, photoURL: photoURL ?? firebaseUser.photoURL };
+      await saveAuthenticatedUserProfile(updatedUser);
+      setUser(updatedUser);
 
       return true;
     } catch (error) {

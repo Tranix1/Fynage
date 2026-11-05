@@ -3,6 +3,7 @@ import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { Stack, usePathname, useRouter } from "expo-router";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 import { getDatabase } from "@/db/database";
+import AppUpdateGate from "@/components/AppUpdateGate";
 
 function AccessGate() {
   const { user, isLoading, subscriptionAccess, subscriptionSkipped } = useAuth();
@@ -23,7 +24,7 @@ function AccessGate() {
     (!user && pathname !== "/") || (user && subscriptionAccess !== "active" && !subscriptionSkipped && !isSubscriptionScreen);
   if (mustWait) return <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}><ActivityIndicator /></View>;
 
-  return <Stack screenOptions={{ headerShown: false }} />;
+  return <AppUpdateGate><Stack screenOptions={{ headerShown: false }} /></AppUpdateGate>;
 }
 
 export default function RootLayout() {

@@ -3,11 +3,18 @@ import type { PlanningRecord } from "@/types/planning";
 
 // Shared root collection: Fynage, Murimi, and Tengesa can read the same owner plans.
 const planningCollection = () => collection(getFirestore(), "plans");
+const legacyPlanningCollection = (uid: string) => collection(getFirestore(), "users", uid, "financial_plans");
 
 export async function listPlanningRecords(uid: string, businessId: string): Promise<PlanningRecord[]> {
   void businessId;
-  const snapshot = await getDocs(query(planningCollection(), where("ownerId", "==", uid)));
-  return snapshot.docs.map((entry) => ({ ...entry.data(), id: entry.id }) as PlanningRecord).sort((a, b) => a.updatedAt.localeCompare(b.updatedAt));
+  const [sharedSnapshot, legacySnapshot] = await Promise.all([
+    getDocs(query(planningCollection(), where("ownerId", "==", uid))),
+    getDocs(query(legacyPlanningCollection(uid), where("businessId", "==", businessId))),
+  ]);
+  const merged = new Map<string, PlanningRecord>();
+  for (const entry of legacySnapshot.docs) merged.set(entry.id, { ...entry.data(), id: entry.id } as PlanningRecord);
+  for (const entry of sharedSnapshot.docs) merged.set(entry.id, { ...entry.data(), id: entry.id } as PlanningRecord);
+  return [...merged.values()].sort((a, b) => a.updatedAt.localeCompare(b.updatedAt));
 }
 
 export async function savePlanningRecord(record: PlanningRecord): Promise<void> {

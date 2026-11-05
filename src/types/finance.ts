@@ -1,5 +1,5 @@
 export type TransactionDirection = "in" | "out" | "transfer";
-export type TransactionKind = "expense" | "fixed_asset" | "investment" | "income" | "loan_received" | "loan_repayment" | "transfer" | "opening_balance" | "adjustment" | "other";
+export type TransactionKind = "expense" | "fixed_asset" | "investment" | "income" | "deposit" | "withdrawal" | "loan_received" | "loan_repayment" | "transfer" | "opening_balance" | "adjustment" | "other";
 export type TransactionSource = "manual" | "sms" | "murimi" | "fynage" | "armament";
 export type FinancialSourceModule = "farm" | "store" | "personal";
 export type FinancialAuditEntry = {
@@ -26,6 +26,8 @@ export type FinancialRecord = {
   direction: TransactionDirection;
   amountMinor: number; currency: string;
   category: string; description: string; occurredAt: string;
+  /** Historical entries can remain in reports without changing the live account balance. */
+  affectsBalance?: boolean;
   /** Stable ID of the account receiving/losing money. `account` remains the display snapshot for old records. */
   accountId?: string;
   /** Destination account ID for transfers; `accountId` is the source. */
@@ -35,6 +37,11 @@ export type FinancialRecord = {
   assetValueMinor?: number; liabilityMinor?: number;
   source?: TransactionSource; sourceKey?: string; sourceFingerprint?: string;
   sourceDetails?: { sender: string; messageDate: string; messageBody: string; providerId?: string };
+  linkedSmsDetails?: Array<{ sender: string; messageDate: string; messageBody: string; providerId?: string }>;
+  balanceBeforeMinor?: number;
+  balanceAfterMinor?: number;
+  /** Difference found during a balance reconciliation: actual minus tracked. */
+  reconciliationDifferenceMinor?: number;
   auditTrail?: FinancialAuditEntry[];
   potentialDuplicateOf?: string;
   mergedSources?: Array<{ source: TransactionSource; sourceKey?: string; sourceDetails?: FinancialRecord["sourceDetails"] }>;
