@@ -6,9 +6,10 @@ service cloud.firestore {
       allow write: if false;
     }
     match /appVersions/{appId} {
-      allow read: if request.auth != null && appId in ['fynage', 'murimi', 'tengesa'];
-      // Only Firebase users with the admin custom claim may run the one-time
-      // bootstrap or change release settings. Normal app users are read-only.
+      // Release metadata is intentionally public so the app can check for
+      // updates before Firebase Auth has finished restoring the session.
+      allow read: if appId in ['fynage', 'murimi', 'tengesa'];
+      // Only Firebase users with the admin custom claim may change releases.
       allow write: if request.auth != null
         && request.auth.token.admin == true
         && appId in ['fynage', 'murimi', 'tengesa'];
@@ -63,6 +64,22 @@ service cloud.firestore {
       allow read: if owns(userId);
       allow create: if owns(userId) && request.resource.data.uid == userId;
       allow update: if owns(userId) && resource.data.uid == userId && request.resource.data.uid == userId;
+      allow delete: if false;
+    }
+    match /userDirectory/{phoneId} {
+      allow get: if request.auth != null;
+      allow create, update: if request.auth != null && request.resource.data.uid == request.auth.uid;
+      allow list, delete: if false;
+    }
+    match /savings/{entryId} {
+      allow read: if owns(resource.data.ownerId);
+      allow create, update: if owns(request.resource.data.ownerId) && request.resource.data.id == entryId;
+      allow delete: if owns(resource.data.ownerId);
+    }
+    match /loans/{loanId} {
+      allow read: if request.auth != null && (resource.data.lenderUid == request.auth.uid || resource.data.borrowerUid == request.auth.uid);
+      allow create: if request.auth != null && (request.resource.data.lenderUid == request.auth.uid || request.resource.data.borrowerUid == request.auth.uid);
+      allow update: if request.auth != null && (resource.data.lenderUid == request.auth.uid || resource.data.borrowerUid == request.auth.uid) && request.resource.data.lenderUid == resource.data.lenderUid && request.resource.data.borrowerUid == resource.data.borrowerUid;
       allow delete: if false;
     }
 
@@ -305,7 +322,7 @@ service cloud.firestore {
         && request.resource.data.sourceCollection == 'customers'
         && request.resource.data.sourceDocumentId is string;
       allow update: if request.auth != null
-        && resource.data.ownerId == request.auth.uid
+        && resource.data.ownerId == request.auth.uid 
         && request.resource.data.id == customerId
         && request.resource.data.ownerId == resource.data.ownerId
         && request.resource.data.businessId == resource.data.businessId

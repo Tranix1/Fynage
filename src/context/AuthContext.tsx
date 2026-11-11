@@ -17,8 +17,9 @@ import {
   updateProfile,
 } from "@react-native-firebase/auth";
 import type { AccountType, CurrentRole } from "@/types/types";
-import { saveAuthenticatedUserProfile } from "@/services/auth/userProfile";
+import { loadUserAppState, saveAuthenticatedUserProfile, saveUserAppState } from "@/services/auth/userProfile";
 import { callArmament } from "@/services/integrations/armamentApi";
+import { synchronizeFinancialRecords } from "@/services/sync/financialSync";
 
 export type SavedAccount = {
   id: string;
@@ -168,20 +169,26 @@ export function AuthProvider({
       // the native Firestore SDK queues writes while offline.
     });
     try {
-      const [storedAccounts, storedRole, storedActiveId] = await Promise.all([
+      const [storedAccounts, storedRole, storedActiveId, cloudState] = await Promise.all([
         AsyncStorage.getItem(accountsStorageKey(firebaseUser.uid)),
         AsyncStorage.getItem(currentRoleStorageKey(firebaseUser.uid)),
         AsyncStorage.getItem(activeAccountStorageKey(firebaseUser.uid)),
+        loadUserAppState(firebaseUser.uid).catch(() => null),
       ]);
-      let nextAccounts: SavedAccount[] = storedAccounts ? JSON.parse(storedAccounts) : [];
-      if (!Array.isArray(nextAccounts)) nextAccounts = [];
+      const localParsed: unknown = storedAccounts ? JSON.parse(storedAccounts) : [];
+      const localAccounts: SavedAccount[] = Array.isArray(localParsed) ? localParsed as SavedAccount[] : [];
+      const cloudAccounts = cloudState?.accounts ?? [];
+      let nextAccounts: SavedAccount[] = [...new Map([...localAccounts, ...cloudAccounts].map((item) => [item.id, item])).values()];
       let storedRoleValue: CurrentRole | null = storedRole ? JSON.parse(storedRole) : null;
-      if (!nextAccounts.length && (storedRoleValue || accountType)) {
+      // A verified Firebase session is already a valid app session. Older
+      // login flows did not pass an account type, which left this list empty
+      // and caused the root screen to show Login again after authentication.
+      if (!nextAccounts.length) {
         const firstRole = storedRoleValue ?? defaultRole(accountType);
         nextAccounts = [{ id: "acc1", name: "acc 1", currentRole: firstRole }];
         await AsyncStorage.setItem(accountsStorageKey(firebaseUser.uid), JSON.stringify(nextAccounts));
       }
-      const selectedAccount = nextAccounts.find((item) => item.id === storedActiveId) ?? nextAccounts[0];
+      const selectedAccount = nextAccounts.find((item) => item.id === (storedActiveId ?? cloudState?.activeAccountId)) ?? nextAccounts[0];
       const nextRole: CurrentRole = selectedAccount?.currentRole ?? storedRoleValue ?? defaultRole(accountType);
       if (selectedAccount) {
         await AsyncStorage.setItem(activeAccountStorageKey(firebaseUser.uid), selectedAccount.id);
@@ -190,6 +197,10 @@ export function AuthProvider({
       setAccounts(nextAccounts);
       setCurrentRole(nextRole);
       setActiveAccountId(selectedAccount?.id ?? (nextAccounts[0]?.id ?? null));
+      if (selectedAccount) void saveUserAppState(firebaseUser.uid, nextAccounts, selectedAccount.id).catch(() => undefined);
+      // Start restoring the two legacy Fynage scopes before the first screen
+      // needs them. The hook on Home continues syncing the active scope.
+      void Promise.all([synchronizeFinancialRecords(firebaseUser.uid, "acc1"), synchronizeFinancialRecords(firebaseUser.uid, "personal")]).catch(() => undefined);
     } catch (error) {
       console.error("Failed to restore saved accounts:", error);
     }
@@ -212,7 +223,7 @@ export function AuthProvider({
   }, []);
 
   // Login: call after the phone OTP has been verified.
-  const Login = async ({ phoneNumber, accountType }: LoginInput): Promise<AuthResponse> => {
+  const Login = async ({ phoneNumber }: LoginInput): Promise<AuthResponse> => {
     try {
       const firebaseUser = getAuth().currentUser;
 
@@ -226,8 +237,6 @@ export function AuthProvider({
       if (firebaseUser.phoneNumber && firebaseUser.phoneNumber !== phoneNumber) {
         return { success: false, message: "The verified phone number does not match." };
       }
-
-      await setupUser(firebaseUser, accountType);
 
       return {
         success: true,
@@ -316,6 +325,7 @@ export function AuthProvider({
       await AsyncStorage.setItem(accountsStorageKey(user.uid), JSON.stringify(nextAccounts));
       await AsyncStorage.setItem(currentRoleStorageKey(user.uid), JSON.stringify(account.currentRole));
       await AsyncStorage.setItem(activeAccountStorageKey(user.uid), account.id);
+      await saveUserAppState(user.uid, nextAccounts, account.id);
       setAccounts(nextAccounts);
       setCurrentRole(account.currentRole);
       setActiveAccountId(account.id);
@@ -333,6 +343,7 @@ export function AuthProvider({
     try {
       await AsyncStorage.setItem(currentRoleStorageKey(user.uid), JSON.stringify(account.currentRole));
       await AsyncStorage.setItem(activeAccountStorageKey(user.uid), account.id);
+      await saveUserAppState(user.uid, accounts, account.id);
       setCurrentRole(account.currentRole);
       setActiveAccountId(account.id);
       return true;

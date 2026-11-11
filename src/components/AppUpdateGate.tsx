@@ -12,8 +12,8 @@ const SKIPPED_VERSION_KEY = "fynage.skippedUpdateVersion";
 const currentVersion = Constants.expoConfig?.version ?? "1.0.0";
 
 function storeUrl(config: AppVersionConfig) {
+  if (Platform.OS === "android") return "https://play.google.com/store/apps/details?id=com.armament.fynage";
   if (Platform.OS === "ios" && config.iosUrl) return config.iosUrl;
-  if (Platform.OS === "android" && config.androidUrl) return config.androidUrl;
   return config.updateUrl || "https://play.google.com/store/apps/details?id=com.armament.fynage";
 }
 

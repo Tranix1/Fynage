@@ -1,7 +1,7 @@
 import React, { useCallback, useState } from "react";
 import { Linking, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { useFocusEffect, useRouter } from "expo-router";
+import { useFocusEffect, usePathname, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { doc, getDoc, getFirestore } from "@react-native-firebase/firestore";
 import { getAuth } from "@react-native-firebase/auth";
@@ -14,10 +14,18 @@ import { useAuth } from "@/context/AuthContext";
 const paymentEndpoint = "https://us-central1-armament-f5a0b.cloudfunctions.net/createArmamentSubscriptionPayment";
 type PaymentMethod = "ecocash" | "card";
 type SubscriptionTab = "subscription" | "about";
+type SubscriptionSource = "fynage" | "murimi";
 
-export default function SubscriptionScreen() {
+type SubscriptionProps = {
+  sourceApp?: SubscriptionSource;
+  returnPath?: string;
+  onSkip?: () => void;
+};
+
+export default function SubscriptionScreen({ sourceApp = "fynage", returnPath, onSkip }: SubscriptionProps) {
   const { refreshSubscriptionAccess, skipSubscription } = useAuth();
   const router = useRouter();
+  const pathname = usePathname();
   const { bottom } = useSafeAreaInsets();
   const uid = getAuth().currentUser?.uid;
   const [subscription, setSubscription] = useState<Record<string, any> | null>(null);
@@ -37,14 +45,14 @@ export default function SubscriptionScreen() {
       const subscriptionData = sub.exists() ? sub.data() : null;
       setSubscription(subscriptionData);
       const expiryDate = subscriptionData?.expiresAt?.toDate?.();
-      const belongsToFynage = subscriptionData?.sourceApp === "fynage" || subscriptionData?.platform === "fynage";
-      const ownActive = belongsToFynage && subscriptionData?.status === "active" && expiryDate instanceof Date && expiryDate.getTime() > Date.now();
+      const belongsToSource = subscriptionData?.sourceApp === sourceApp || subscriptionData?.platform === sourceApp;
+      const ownActive = belongsToSource && subscriptionData?.status === "active" && expiryDate instanceof Date && expiryDate.getTime() > Date.now();
       setSubscriptionActive(ownActive);
       setError("");
-      await refreshSubscriptionAccess();
+      if (sourceApp === "fynage") await refreshSubscriptionAccess();
 
     } catch (e) { setError(e instanceof Error ? e.message : "Subscription information could not be loaded."); }
-  }, [refreshSubscriptionAccess, uid]);
+  }, [refreshSubscriptionAccess, sourceApp, uid]);
   useFocusEffect(useCallback(() => { void refresh(); }, [refresh]));
   const act = async (run: () => Promise<void>) => { setBusy(true); setError(""); try { await run(); } catch (e) { setError(e instanceof Error ? e.message : "The request failed."); } finally { setBusy(false); } };
   const pay = () => act(async () => {
@@ -55,7 +63,7 @@ export default function SubscriptionScreen() {
       if (!/^(?:\+263|263|0)?7\d{8}$/.test(digits)) throw new Error("Enter a valid EcoCash number, for example 0771234567.");
       phone = digits.startsWith("+") ? digits.slice(1) : digits.startsWith("0") ? `263${digits.slice(1)}` : digits.startsWith("263") ? digits : `263${digits}`;
     }
-    const response = await fetch(paymentEndpoint, { method: "POST", headers: { Authorization: "Bearer " + await user.getIdToken(), "Content-Type": "application/json" }, body: JSON.stringify({ sourceApp: "fynage", returnUrl: "fynage://subscription", paymentMethod, ...(phone ? { phone } : {}) }) });
+    const response = await fetch(paymentEndpoint, { method: "POST", headers: { Authorization: "Bearer " + await user.getIdToken(), "Content-Type": "application/json" }, body: JSON.stringify({ sourceApp, returnUrl: `${sourceApp}://subscription`, paymentMethod, ...(phone ? { phone } : {}) }) });
     const responseText = await response.text();
     let result: { error?: string; redirectUrl?: string; paymentId?: string };
     try { result = JSON.parse(responseText) as typeof result; }
@@ -67,7 +75,7 @@ export default function SubscriptionScreen() {
   });
   const checkPayment = () => act(async () => {
     if (!paymentId) return;
-    const result = await callArmament<{ status: string }>("checkArmamentSubscriptionPayment", { paymentId, sourceApp: "fynage" });
+    const result = await callArmament<{ status: string }>("checkArmamentSubscriptionPayment", { paymentId, sourceApp });
     setPaymentStatus(result.status);
     if (result.status === "paid") await refresh();
   });
@@ -80,8 +88,8 @@ export default function SubscriptionScreen() {
       <ThemedText color={muted} style={styles.aboutText}>Fynage helps you keep track of your money. Record income and expenses, organize transactions, and review your monthly history and summaries. You can also choose to link SMS messages to transactions while recording them.</ThemedText>
     </View> : <>
     <View style={styles.heading}>
-      <ThemedText type="title" style={styles.title}>Subscription</ThemedText>
-      <ThemedText color={muted}>Simple monthly access</ThemedText>
+      <ThemedText type="title" style={styles.title}>{sourceApp === "murimi" ? "Murimi subscription" : "Subscription"}</ThemedText>
+      <ThemedText color={muted}>Simple monthly access · $1 per month</ThemedText>
     </View>
     <View style={[styles.card, { backgroundColor: surface, borderColor: border }]}>
       <View style={styles.priceBlock}>
@@ -106,12 +114,12 @@ export default function SubscriptionScreen() {
           <TextInput value={ecocashNumber} onChangeText={setEcocashNumber} keyboardType="phone-pad" autoComplete="tel" maxLength={18} placeholder="077 123 4567" placeholderTextColor={muted} style={[styles.input, { backgroundColor: inputBackground, color: text, borderColor: border }]} />
         </> : <ThemedText type="tiny" color={muted}>You’ll enter your card details securely on Paynow.</ThemedText>}
       </View>
-      {subscriptionActive ? <Pressable style={[styles.button, { borderColor: accent, borderWidth: 1 }]} onPress={() => router.replace("/")}><ThemedText color={accent}>Continue to Fynage</ThemedText></Pressable> : null}
+      {subscriptionActive ? <Pressable style={[styles.button, { borderColor: accent, borderWidth: 1 }]} onPress={() => { if (pathname !== "/") router.replace("/"); }}><ThemedText color={accent}>Continue to Fynage</ThemedText></Pressable> : null}
       {paymentStatus ? <ThemedText type="tiny" color={muted}>Latest payment: {paymentStatus}</ThemedText> : null}
       {paymentId && paymentStatus !== "paid" ? <Pressable disabled={busy} style={[styles.button, { borderColor: accent, borderWidth: 1, opacity: busy ? 0.6 : 1 }]} onPress={() => void checkPayment()}><ThemedText color={accent}>{busy ? "Checking payment…" : "Check Paynow payment status"}</ThemedText></Pressable> : null}
       {error ? <ThemedText color="#a33">{error}</ThemedText> : null}
       <Pressable disabled={busy || paymentStatus === "pending"} style={[styles.button, { backgroundColor: "#12315C", opacity: busy || paymentStatus === "pending" ? 0.6 : 1 }]} onPress={() => void pay()}><ThemedText color="#fff" type="defaultSemiBold">{busy ? "Please wait…" : paymentStatus === "pending" ? "Payment pending" : ["failed", "cancelled", "error", "rejected", "expired"].includes(paymentStatus) ? "Try again" : subscriptionActive ? "Renew for $1" : "Subscribe for $1"}</ThemedText></Pressable>
-      {!subscriptionActive ? <Pressable style={[styles.skipButton, { borderColor: border }]} onPress={() => { skipSubscription(); router.replace("/"); }}><ThemedText color={muted}>Skip for now</ThemedText></Pressable> : null}
+      {!subscriptionActive ? <Pressable style={[styles.skipButton, { borderColor: border }]} onPress={() => { if (onSkip) onSkip(); else { skipSubscription(); router.replace((returnPath ?? "/") as never); } }}><ThemedText color={muted}>Skip for now</ThemedText></Pressable> : null}
     </View>
     </>}
     </View>

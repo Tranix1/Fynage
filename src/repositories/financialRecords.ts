@@ -34,9 +34,15 @@ export function normalizeLedgerRecord(input: Partial<FinancialRecord>, fallbackO
     amountMinor: input.amountMinor ?? 0,
     currency: input.currency ?? "USD",
     category: input.category ?? "General",
-    description: input.description ?? "Shared ledger entry",
+    // Item names are optional in the UI. Keep a stable readable label for
+    // reports and exports instead of rejecting an otherwise valid movement.
+    description: input.description?.trim() || "Unnamed item",
     occurredAt: input.occurredAt ?? new Date().toISOString(),
     affectsBalance: input.affectsBalance !== false,
+    accountId: input.accountId,
+    toAccountId: input.toAccountId,
+    account: input.account,
+    toAccount: input.toAccount,
     provider: input.provider,
     availableBalanceMinor: input.availableBalanceMinor,
     sourceDetails: input.sourceDetails,
@@ -51,6 +57,9 @@ export function normalizeLedgerRecord(input: Partial<FinancialRecord>, fallbackO
     source: input.source ?? (sourceApp === "murimi" ? "murimi" : "manual"),
     classificationStatus: input.classificationStatus ?? "reviewed",
     userEditedFields: input.userEditedFields ?? [],
+    assignedPlanId: input.assignedPlanId,
+    assignedPlanKind: input.assignedPlanKind,
+    assignedPlatform: input.assignedPlatform,
   };
   if (!record.deletedAt && record.amountMinor <= 0) throw new Error("Amount must be positive minor currency units.");
   return record;
@@ -62,7 +71,7 @@ function validate(record: FinancialRecord): void {
   if (!record.id || !record.ownerId || !record.businessId) throw new Error("Record identity and owner are required.");
   if (!Number.isSafeInteger(record.amountMinor) || record.amountMinor <= 0) throw new Error("Amount must be positive minor currency units.");
   if (!/^[A-Z]{3}$/.test(record.currency)) throw new Error("Currency must be a three-letter ISO code.");
-  if (!record.category.trim() || !record.description.trim() || !Number.isFinite(Date.parse(record.occurredAt))) throw new Error("Enter a category, description, and valid date.");
+  if (!record.category.trim() || !record.description.trim() || !Number.isFinite(Date.parse(record.occurredAt))) throw new Error("Enter a category and valid date.");
 }
 
 const accountingType = (type: TransactionKind): "income" | "expense" => type === "income" ? "income" : "expense";

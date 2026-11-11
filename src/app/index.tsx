@@ -9,6 +9,7 @@ import InsightsHome from "./Insights/Index";
 import MoreHome from "./More/Index";
 import Login from "./Account/Login";
 import SignUp from "./Account/SignUp";
+import Subscription from "./Subscription";
 import { useAuth } from "@/context/AuthContext";
 import { ThemedText } from "@/components/ThemedText";
 import { useThemeColor } from "@/hooks/useThemeColor";
@@ -16,7 +17,7 @@ import { useThemeColor } from "@/hooks/useThemeColor";
 type MainTab = "Home" | "Business" | "Insights" | "More" | "About";
 
 export default function Index() {
-  const { user, isSignedIn, isLoading, accounts } = useAuth();
+  const { user, isSignedIn, isLoading, subscriptionAccess, subscriptionSkipped } = useAuth();
   const [selectedTab, setSelectedTab] = useState<MainTab>("Home");
   const [showSignUp, setShowSignUp] = useState(false);
   const [isSigningUp, setIsSigningUp] = useState(false);
@@ -25,7 +26,11 @@ export default function Index() {
   const iconColor = useThemeColor("icon");
   const { bottom } = useSafeAreaInsets();
 
-  const needsAccountEntry = !isSignedIn || !user || accounts.length === 0;
+  // Account storage is supplemental app state, not authentication state. A
+  // newly verified user must be allowed into the app even while the local
+  // account record is being restored or if that write is temporarily offline.
+  const needsAccountEntry = !isSignedIn || !user;
+  const needsSubscription = Boolean(user && subscriptionAccess !== "active" && !subscriptionSkipped);
 
   let content: React.ReactNode;
   if (isLoading || isSigningUp) {
@@ -35,6 +40,8 @@ export default function Index() {
         <ThemedText>{isSigningUp ? "Creating your account…" : "Loading your account…"}</ThemedText>
       </View>
     );
+  } else if (needsSubscription) {
+    content = <Subscription />;
   } else if (selectedTab === "About") {
     content = <About />;
   } else if (needsAccountEntry) {
@@ -56,7 +63,7 @@ export default function Index() {
   return (
     <View style={[styles.container, { backgroundColor: background }]}>
       <View style={styles.content}>{content}</View>
-      <View style={[styles.tabBar, { backgroundColor: background, paddingBottom: Math.max(bottom, 10) }]}>
+      {!needsSubscription && <View style={[styles.tabBar, { backgroundColor: background, paddingBottom: Math.max(bottom, 10) }]}>
         {(isSignedIn && !needsAccountEntry ? ["Home", "Business", "Insights", "More"] as const : ["Home", "About"] as const).map((tab) => {
           const selected = selectedTab === tab;
           return (
@@ -78,7 +85,7 @@ export default function Index() {
             </TouchableOpacity>
           );
         })}
-      </View>
+      </View>}
     </View>
   );
 }

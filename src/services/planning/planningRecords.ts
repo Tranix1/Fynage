@@ -9,10 +9,15 @@ export async function listPlanningRecords(uid: string, businessId: string): Prom
   void businessId;
   const [sharedSnapshot, legacySnapshot] = await Promise.all([
     getDocs(query(planningCollection(), where("ownerId", "==", uid))),
-    getDocs(query(legacyPlanningCollection(uid), where("businessId", "==", businessId))),
+    // The owner constraint is required both for privacy and for Firestore to
+    // prove that the whole query is allowed by the rules.
+    getDocs(query(legacyPlanningCollection(uid), where("ownerId", "==", uid))),
   ]);
   const merged = new Map<string, PlanningRecord>();
-  for (const entry of legacySnapshot.docs) merged.set(entry.id, { ...entry.data(), id: entry.id } as PlanningRecord);
+  for (const entry of legacySnapshot.docs) {
+    const row = entry.data() as PlanningRecord;
+    if (row.businessId === businessId) merged.set(entry.id, { ...row, id: entry.id });
+  }
   for (const entry of sharedSnapshot.docs) merged.set(entry.id, { ...entry.data(), id: entry.id } as PlanningRecord);
   return [...merged.values()].sort((a, b) => a.updatedAt.localeCompare(b.updatedAt));
 }

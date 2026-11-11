@@ -36,6 +36,10 @@ export type FinancialRecord = {
   principalMinor?: number; interestMinor?: number; feeMinor?: number;
   assetValueMinor?: number; liabilityMinor?: number;
   source?: TransactionSource; sourceKey?: string; sourceFingerprint?: string;
+  /** Optional planning and cross-app attribution chosen by the user. */
+  assignedPlanId?: string;
+  assignedPlanKind?: "plan" | "list" | "project";
+  assignedPlatform?: "fynage" | "murimi" | "tengesa";
   sourceDetails?: { sender: string; messageDate: string; messageBody: string; providerId?: string };
   linkedSmsDetails?: Array<{ sender: string; messageDate: string; messageBody: string; providerId?: string }>;
   balanceBeforeMinor?: number;

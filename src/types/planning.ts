@@ -7,7 +7,7 @@ export type PlanningItem = {
   done: boolean;
   /** Whether this item has already been bought/paid for. Legacy records use done. */
   bought?: boolean;
-  recordType?: "expense" | "fixed_asset";
+  recordType?: "expense" | "fixed_asset" | "current_asset" | "non_current_asset" | "liability";
 };
 
 export type PlanningRecord = {

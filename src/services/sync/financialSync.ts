@@ -1,7 +1,6 @@
 import { getDatabase, withDatabaseTransaction } from "@/db/database";
 import { getSyncState, listFinancialAccounts, mergeRemoteFinancialAccounts, mergeRemoteFinancialCategories, mergeRemoteFinancialRecords, normalizeLedgerRecord } from "@/repositories/financialRecords";
 import { dedupeLedgerRecords } from "@/services/finance/ledgerIdentity";
-import { callArmament } from "@/services/integrations/armamentApi";
 import type { FinancialCategory, FinancialRecord } from "@/types/finance";
 import { collection, doc, getDocsFromServer, getFirestore, limit, orderBy, query, runTransaction, serverTimestamp, setDoc, startAfter, where } from "@react-native-firebase/firestore";
 
@@ -46,15 +45,6 @@ async function upload(uid: string, businessId: string, row: QueueRow): Promise<v
     // Ties favor the existing cloud copy; clients never overwrite a newer copy.
     if (remoteRevision >= row.revision && remoteUpdatedAt >= normalized.updatedAt) return;
     transaction.set(ref, { ...normalized, sourceApp: normalized.sourceApp ?? "fynage", sourceRecordId: normalized.sourceRecordId ?? normalized.id, revision: Math.max(remoteRevision, row.revision) + 1, updatedAtServer: serverTimestamp() });
-  });
-  // Shared ledger rows are projected by the trusted Armament service after the
-  // owner's private source record has reached Firestore. Failed calls remain
-  // in the local queue and retry with the source record's stable ID.
-  await callArmament("syncArmamentMoneyLedger", {
-    sourceApp: "fynage",
-    sourceId: "personal",
-    sourceCollection: "financial_ledger",
-    sourceDocumentId: row.record_id,
   });
 }
 

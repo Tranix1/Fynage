@@ -93,14 +93,14 @@ test("records money sent as an expense and keeps transfers out of net cash flow"
     record({ direction: "transfer", type: "transfer", amountMinor: 9000 }),
     record({ occurredAt: "2026-02-01T10:00:00.000Z", direction: "in", amountMinor: 7000 }),
   ], "2026-03");
-  assert.deepEqual(monthly, { moneyIn: 5000, moneyOut: 1200, income: 5000, expenses: 1200, transfersIn: 9000, transfersOut: 9000, charges: 0, net: 3800, profitLoss: 3800 });
+  assert.deepEqual(monthly, { moneyIn: 5000, moneyOut: 1200, income: 5000, expenses: 1200, investments: 0, fixedAssets: 0, untracked: 0, transfersIn: 9000, transfersOut: 9000, charges: 0, net: 3800, profitLoss: 3800 });
 });
 
 test("keeps monthly summaries separated by currency", () => {
   const usd = record({ direction: "in", type: "income", amountMinor: 5000, currency: "USD" });
   const zwg = record({ direction: "in", type: "income", amountMinor: 7000, currency: "ZWG" });
-  assert.deepEqual(calculateMonthlyMovement([usd, zwg], "2026-03", "USD"), { moneyIn: 5000, moneyOut: 0, income: 5000, expenses: 0, transfersIn: 0, transfersOut: 0, charges: 0, net: 5000, profitLoss: 5000 });
-  assert.deepEqual(calculateMonthlyMovement([usd, zwg], "2026-03", "ZWG"), { moneyIn: 7000, moneyOut: 0, income: 7000, expenses: 0, transfersIn: 0, transfersOut: 0, charges: 0, net: 7000, profitLoss: 7000 });
+  assert.deepEqual(calculateMonthlyMovement([usd, zwg], "2026-03", "USD"), { moneyIn: 5000, moneyOut: 0, income: 5000, expenses: 0, investments: 0, fixedAssets: 0, untracked: 0, transfersIn: 0, transfersOut: 0, charges: 0, net: 5000, profitLoss: 5000 });
+  assert.deepEqual(calculateMonthlyMovement([usd, zwg], "2026-03", "ZWG"), { moneyIn: 7000, moneyOut: 0, income: 7000, expenses: 0, investments: 0, fixedAssets: 0, untracked: 0, transfersIn: 0, transfersOut: 0, charges: 0, net: 7000, profitLoss: 7000 });
 });
 
 test("estimates net worth with recorded assets and liabilities without treating loans as income", () => {
@@ -143,7 +143,7 @@ test("account adjustments change the balance without becoming income or expenses
   const account = { id: "cash", ownerId: "u", businessId: "b", name: "Cash", type: "cash", currency: "USD", openingBalanceMinor: 10000, openingBalanceDate: "2025-10-01T00:00:00.000Z", archived: false, updatedAt: "2025-10-01T00:00:00.000Z", revision: 1 };
   const adjustment = record({ id: "adjust", type: "adjustment", direction: "in", amountMinor: 1500, accountId: "cash", description: "Found cash during count", occurredAt: "2025-10-02T00:00:00.000Z" });
   assert.equal(calculateAccountBalances([account], [adjustment], "2025-10-31T00:00:00.000Z")[0]?.balanceMinor, 11500);
-  assert.deepEqual(calculateMonthlyMovement([adjustment], "2025-10", "USD"), { moneyIn: 1500, moneyOut: 0, income: 0, expenses: 0, transfersIn: 0, transfersOut: 0, charges: 0, net: 1500, profitLoss: 0 });
+  assert.deepEqual(calculateMonthlyMovement([adjustment], "2025-10", "USD"), { moneyIn: 1500, moneyOut: 0, income: 0, expenses: 0, investments: 0, fixedAssets: 0, untracked: 0, transfersIn: 0, transfersOut: 0, charges: 0, net: 1500, profitLoss: 0 });
 });
 
 test("parses InnBucks and supported bank messages to the right financial account", () => {

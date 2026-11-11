@@ -1,4 +1,5 @@
-import { doc, getDoc, setDoc, writeBatch } from "firebase/firestore";
+import { doc, setDoc, writeBatch } from "firebase/firestore";
+import { doc as nativeDoc, getDoc as nativeGetDoc, getFirestore as getNativeFirestore } from "@react-native-firebase/firestore";
 import { db } from "@/db/fireBaseConfig";
 
 export type ManagedAppId = "fynage" | "murimi" | "tengesa";
@@ -8,7 +9,7 @@ const defaultVersion = (appId: ManagedAppId): AppVersionConfig => ({ appId, appN
 
 /** Reads one app's managed version from the shared Armament appVersions collection. */
 export async function getAppVersion(appId: ManagedAppId = "fynage"): Promise<AppVersionConfig | null> {
-  try { const snapshot = await getDoc(doc(db, "appVersions", appId)); return snapshot.exists() ? { ...defaultVersion(appId), ...snapshot.data(), appId } as AppVersionConfig : null; }
+  try { const snapshot = await nativeGetDoc(nativeDoc(getNativeFirestore(), "appVersions", appId)); return snapshot.exists() ? { ...defaultVersion(appId), ...snapshot.data(), appId } as AppVersionConfig : null; }
   catch (error) { console.warn(`Could not read ${appId} app version configuration.`, error); return null; }
 }
 

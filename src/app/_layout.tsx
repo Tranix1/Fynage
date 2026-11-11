@@ -1,28 +1,13 @@
 import React, { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
-import { Stack, usePathname, useRouter } from "expo-router";
+import { Stack } from "expo-router";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 import { getDatabase } from "@/db/database";
 import AppUpdateGate from "@/components/AppUpdateGate";
 
 function AccessGate() {
-  const { user, isLoading, subscriptionAccess, subscriptionSkipped } = useAuth();
-  const pathname = usePathname();
-  const router = useRouter();
-  const isSubscriptionScreen = pathname === "/Subscription";
-
-  useEffect(() => {
-    if (isLoading || subscriptionAccess === "checking") return;
-    if (!user && pathname !== "/") {
-      router.replace("/");
-    } else if (user && subscriptionAccess !== "active" && !subscriptionSkipped && !isSubscriptionScreen) {
-      router.replace("/Subscription");
-    }
-  }, [isLoading, isSubscriptionScreen, pathname, router, subscriptionAccess, subscriptionSkipped, user]);
-
-  const mustWait = isLoading || (subscriptionAccess === "checking" && !isSubscriptionScreen) ||
-    (!user && pathname !== "/") || (user && subscriptionAccess !== "active" && !subscriptionSkipped && !isSubscriptionScreen);
-  if (mustWait) return <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}><ActivityIndicator /></View>;
+  const { isLoading } = useAuth();
+  if (isLoading) return <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}><ActivityIndicator /></View>;
 
   return <AppUpdateGate><Stack screenOptions={{ headerShown: false }} /></AppUpdateGate>;
 }

@@ -7,6 +7,9 @@ export type SharedFarmEntry = {
   amountMinor: number;
   currency: string;
   category: string;
+  description?: string;
+  financialClassification?: "consumable" | "fixed_asset" | "operating_expense";
+  assetValueMinor?: number;
   transactionAt: string;
   status: string;
 };
