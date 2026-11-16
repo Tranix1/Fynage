@@ -1,7 +1,7 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import { ActivityIndicator, Image, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import * as IntentLauncher from "expo-intent-launcher";
 import { useAuth } from "@/context/AuthContext";
 import ScreenWrapper from "@/components/ScreenWrapper";
@@ -9,6 +9,8 @@ import { ThemedText } from "@/components/ThemedText";
 import { useThemeColor } from "@/hooks/useThemeColor";
 import { listBusinessConnections } from "@/repositories/businessConnections";
 import { listTengesaFinance, type TengesaStoreSummary } from "@/services/integrations/tengesaFinance";
+import { summarizeMurimiBalanceSheet } from "@/services/integrations/businessSummary";
+import { refreshMurimiFinance } from "@/services/integrations/murimiFinance";
 import type { ArmamentAppId, BusinessConnection } from "@/types/business";
 
 type AppDefinition = { id: ArmamentAppId; name: string; description: string; packageName: string; icon: keyof typeof Ionicons.glyphMap; detail: string; available: boolean };
@@ -19,6 +21,10 @@ const apps: AppDefinition[] = [
 ];
 type Installation = { installed: boolean | null; iconData?: string };
 const money = (amount: number, currency: string) => `${currency} ${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+function SummaryMetric({ label, value, accent }: { label: string; value: string; accent: string }) { return <View style={styles.murimiSummaryMetric}><ThemedText type="tiny" numberOfLines={1}>{label}</ThemedText><ThemedText type="defaultSemiBold" color={accent} numberOfLines={1}>{value}</ThemedText></View>; }
+const rowNumber = (row: Record<string, unknown>, keys: string[]) => { for (const key of keys) { const value = Number(row[key]); if (Number.isFinite(value) && value > 0) return value; } return 0; };
+const rowIsCurrentMonth = (row: Record<string, unknown>, month: string) => keysForDate(row).some((value) => value.slice(0, 7) === month);
+const keysForDate = (row: Record<string, unknown>) => ["date", "occurredAt", "createdAt", "saleDate", "expenseDate", "purchaseDate"].map((key) => row[key]).filter((value): value is string => typeof value === "string");
 
 export default function BusinessIndex() {
   const { user } = useAuth();
@@ -29,13 +35,11 @@ export default function BusinessIndex() {
   const [info, setInfo] = useState<AppDefinition | null>(null);
   const border = useThemeColor("border"); const surface = useThemeColor("backgroundLight"); const accent = useThemeColor("accent"); const muted = useThemeColor("textlight"); const text = useThemeColor("text");
 
-  useEffect(() => {
-    let active = true;
-    const load = async () => {
+  const load = useCallback(async () => {
       setLoading(true);
       const [connectionRows, storeRows] = user?.uid
         ? await Promise.all([
-            listBusinessConnections(user.uid).catch(() => []),
+            listBusinessConnections(user.uid).then(async (rows) => Promise.all(rows.filter((row) => row.status === "connected").map((row) => refreshMurimiFinance(user.uid, row).catch(() => row)))).catch(() => []),
             listTengesaFinance(user.uid).catch(() => []),
           ])
         : [[], []];
@@ -51,18 +55,10 @@ export default function BusinessIndex() {
           }
         }));
       } else apps.forEach((app) => { detected[app.id] = { installed: null }; });
-      if (active) { setConnections(connectionRows); setTengesaStores(storeRows); setInstallation(detected); setLoading(false); }
-    };
-    void load();
-    return () => { active = false; };
-  }, [user?.uid]);
+      setConnections(connectionRows); setTengesaStores(storeRows); setInstallation(detected); setLoading(false);
+  }, [user]);
+  useFocusEffect(useCallback(() => { void load(); }, [load]));
 
-  const totals = useMemo(() => {
-    const murimi = connections.filter((connection) => connection.status !== "expired");
-    const currencies = [...new Set(murimi.map((item) => item.snapshot.business.currency))];
-    if (!murimi.length || currencies.length !== 1) return null;
-    return { currency: currencies[0], revenue: murimi.reduce((sum, item) => sum + item.snapshot.performance.revenue, 0), expenses: murimi.reduce((sum, item) => sum + item.snapshot.performance.operatingExpenses, 0), farmCount: murimi.length };
-  }, [connections]);
   const storeTotals = useMemo(() => {
     const totalsByCurrency = new Map<string, { sales: number; expenses: number; stores: number }>();
     for (const store of tengesaStores.filter((item) => item.connected)) {
@@ -74,6 +70,16 @@ export default function BusinessIndex() {
     }
     return [...totalsByCurrency.entries()];
   }, [tengesaStores]);
+  const murimiSummary = useMemo(() => {
+    const farms = connections.filter((connection) => connection.status === "connected");
+    if (!farms.length) return null;
+    const month = new Date().toISOString().slice(0, 7);
+    const currency = farms[0].snapshot.business.currency;
+    const sheets = farms.map(summarizeMurimiBalanceSheet);
+    const incomeMonth = farms.reduce((sum, farm) => sum + farm.snapshot.sales.filter((row) => rowIsCurrentMonth(row, month)).reduce((total, row) => total + rowNumber(row, ["totalValue", "amount", "value"]), 0), 0);
+    const expensesMonth = farms.reduce((sum, farm) => sum + farm.snapshot.expenses.filter((row) => rowIsCurrentMonth(row, month)).reduce((total, row) => total + rowNumber(row, ["amount", "totalValue", "value"]), 0), 0);
+    return { currency, farms: farms.length, netWorth: sheets.reduce((sum, sheet) => sum + sheet.netWorth, 0), assets: sheets.reduce((sum, sheet) => sum + sheet.totalAssets, 0), incomeMonth, expensesMonth };
+  }, [connections]);
 
   const openApp = async (app: AppDefinition) => {
     if (app.id === "murimi") router.push("/Business/Murimi" as never);
@@ -110,17 +116,16 @@ export default function BusinessIndex() {
         </View>
         <View style={styles.statusLine}><View style={[styles.dot, { backgroundColor: appConnections.length ? "#25834e" : install.installed ? "#c28725" : "#89928c" }]} /><ThemedText type="tiny" color={muted}>{status}</ThemedText><ThemedText style={styles.appArrow} color={accent}>View finances ›</ThemedText></View>
         <ThemedText type="tiny" color={muted}>On this device: {install.installed === true ? "Installed" : install.installed === false ? "Not installed" : "Installation status unavailable"}</ThemedText>
-        {app.id === "murimi" && appConnections.length > 0 ? <View style={[styles.summary, { borderTopColor: border }]}><ThemedText type="tiny" color={muted}>{appConnections.length} {appConnections.length === 1 ? "farm" : "farms"} · {totals ? `${money(totals.revenue, totals.currency)} recorded income` : "Financial snapshots connected"}</ThemedText>{totals ? <ThemedText type="tiny" color={muted}>{money(totals.expenses, totals.currency)} recorded expenses</ThemedText> : null}</View>
+        {app.id === "murimi" && appConnections.length > 0 ? <View style={[styles.summary, { borderTopColor: border }]}><ThemedText type="tiny" color={muted}>{murimiSummary?.farms} connected {murimiSummary?.farms === 1 ? "farm" : "farms"} · This month</ThemedText><View style={styles.murimiSummaryGrid}><SummaryMetric label="All farms net worth" value={murimiSummary ? money(murimiSummary.netWorth, murimiSummary.currency) : "—"} accent={accent} /><SummaryMetric label="Income" value={murimiSummary ? money(murimiSummary.incomeMonth, murimiSummary.currency) : "—"} accent={accent} /><SummaryMetric label="Expenses" value={murimiSummary ? money(murimiSummary.expensesMonth, murimiSummary.currency) : "—"} accent={accent} /><SummaryMetric label="Assets/value" value={murimiSummary ? money(murimiSummary.assets, murimiSummary.currency) : "—"} accent={accent} /></View><ThemedText type="tiny" color={muted}>Open Murimi for each farm and the full calculation.</ThemedText></View>
           : app.id === "tengesa" && connectedStores.length > 0 ? <View style={[styles.summary, { borderTopColor: border }]}><ThemedText type="tiny" color={muted}>{connectedStores.length} connected store{connectedStores.length === 1 ? "" : "s"} · subscription access is checked per store</ThemedText>{storeTotals.map(([currency, summary]) => <ThemedText key={currency} type="tiny" color={muted}>{currency}: {money(summary.sales / 100, currency)} posted sales · {money(summary.expenses / 100, currency)} posted expenses ({summary.stores} store{summary.stores === 1 ? "" : "s"})</ThemedText>)}</View>
           : <View style={[styles.summary, { borderTopColor: border }]}><ThemedText type="tiny" color={muted}>{app.id === "tengesa" ? "Connect a store to view its authorized financial summary." : app.available ? "Connect a business to view its financial summary." : "Integration will be added later."}</ThemedText></View>}
         {install.installed && <Pressable accessibilityRole="button" onPress={(event) => { event.stopPropagation(); void onOpenInstalled(app); }} style={styles.openApp}><Ionicons name="open-outline" size={15} color={accent} /><ThemedText type="tiny" color={accent}>Open {app.name}</ThemedText></Pressable>}
         {Platform.OS === "android" && install.installed === false && app.available && <Pressable accessibilityRole="button" onPress={(event) => { event.stopPropagation(); void onFindApp(app); }} style={styles.openApp}><Ionicons name="download-outline" size={15} color={accent} /><ThemedText type="tiny" color={accent}>Check Play Store</ThemedText></Pressable>}
       </Pressable>;
     })}
-    {totals && <ThemedText type="tiny" color={muted}>Murimi values are source-reported totals. They are not added to your personal net worth until cash ownership and internal transfers can be reconciled.</ThemedText>}
   </ScrollView><Modal visible={!!info} transparent animationType="fade" onRequestClose={() => setInfo(null)}><Pressable style={styles.modalBackdrop} onPress={() => setInfo(null)}><Pressable onPress={(event) => event.stopPropagation()} style={[styles.modalCard, { backgroundColor: surface }]}><View style={styles.modalHead}><ThemedText type="subtitle">{info?.name}</ThemedText><Pressable accessibilityRole="button" accessibilityLabel="Close information" onPress={() => setInfo(null)}><Ionicons name="close" size={22} color={text} /></Pressable></View><ThemedText color={muted}>{info?.detail}</ThemedText><Pressable style={[styles.modalButton, { backgroundColor: accent }]} onPress={() => { const app = info; setInfo(null); if (app) void openApp(app); }}><ThemedText color="#fff" type="defaultSemiBold">View {info?.name}</ThemedText></Pressable></Pressable></Pressable></Modal></ScreenWrapper>;
 }
 
 const styles = StyleSheet.create({
-  page: { padding: 18, paddingBottom: 36, gap: 14 }, header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }, note: { borderWidth: 1, borderRadius: 14, padding: 13, flexDirection: "row", alignItems: "center", gap: 10 }, noteText: { flex: 1 }, appCard: { borderWidth: 1, borderRadius: 16, padding: 14, gap: 12 }, appCardTop: { flexDirection: "row", alignItems: "center", gap: 11 }, appIcon: { width: 46, height: 46, borderRadius: 13, alignItems: "center", justifyContent: "center" }, actualIcon: { width: 29, height: 29, borderRadius: 7 }, appTitle: { flex: 1, gap: 2 }, infoButton: { padding: 3 }, statusLine: { flexDirection: "row", alignItems: "center", gap: 7 }, dot: { width: 8, height: 8, borderRadius: 4 }, appArrow: { marginLeft: "auto" }, summary: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 9, gap: 3 }, openApp: { flexDirection: "row", alignItems: "center", gap: 5, alignSelf: "flex-start" }, modalBackdrop: { flex: 1, backgroundColor: "#0008", justifyContent: "center", padding: 20 }, modalCard: { borderRadius: 18, padding: 18, gap: 15 }, modalHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" }, modalButton: { minHeight: 46, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  page: { padding: 18, paddingBottom: 36, gap: 14 }, header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }, note: { borderWidth: 1, borderRadius: 14, padding: 13, flexDirection: "row", alignItems: "center", gap: 10 }, noteText: { flex: 1 }, appCard: { borderWidth: 1, borderRadius: 16, padding: 14, gap: 12 }, appCardTop: { flexDirection: "row", alignItems: "center", gap: 11 }, appIcon: { width: 46, height: 46, borderRadius: 13, alignItems: "center", justifyContent: "center" }, actualIcon: { width: 29, height: 29, borderRadius: 7 }, appTitle: { flex: 1, gap: 2 }, infoButton: { padding: 3 }, statusLine: { flexDirection: "row", alignItems: "center", gap: 7 }, dot: { width: 8, height: 8, borderRadius: 4 }, appArrow: { marginLeft: "auto" }, summary: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 9, gap: 3 }, murimiSummaryGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8, paddingTop: 5 }, murimiSummaryMetric: { width: "47%", gap: 2 }, openApp: { flexDirection: "row", alignItems: "center", gap: 5, alignSelf: "flex-start" }, modalBackdrop: { flex: 1, backgroundColor: "#0008", justifyContent: "center", padding: 20 }, modalCard: { borderRadius: 18, padding: 18, gap: 15 }, modalHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" }, modalButton: { minHeight: 46, borderRadius: 10, alignItems: "center", justifyContent: "center" },
 });

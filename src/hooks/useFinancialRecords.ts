@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState } from "react-native";
+import { useFocusEffect } from "expo-router";
 import { useAuth } from "@/context/AuthContext";
 import { listFinancialRecords, saveFinancialRecord, deleteFinancialRecord } from "@/repositories/financialRecords";
 import { isOnline, subscribeToConnectivity } from "@/services/network/connectivity";
@@ -45,6 +46,7 @@ export function useFinancialRecords(businessId = "personal") {
     }
   },[uid,scope,legacyScope,refresh]);
   useEffect(() => { const task = setTimeout(() => { void refresh(); },0); return () => clearTimeout(task); },[refresh]);
+  useFocusEffect(useCallback(() => { const task = setTimeout(() => { void refresh(); }, 250); return () => clearTimeout(task); }, [refresh]));
   useEffect(() => {
     if (!uid) return;
     // A Firebase session can be restored before the local SQLite cache has

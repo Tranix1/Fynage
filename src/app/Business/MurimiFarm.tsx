@@ -8,7 +8,7 @@ import { useThemeColor } from "@/hooks/useThemeColor";
 import { useAuth } from "@/context/AuthContext";
 import { listBusinessConnections } from "@/repositories/businessConnections";
 import { refreshMurimiFinance } from "@/services/integrations/murimiFinance";
-import { summarizeMurimi } from "@/services/integrations/businessSummary";
+import { summarizeMurimi, summarizeMurimiBalanceSheet } from "@/services/integrations/businessSummary";
 import type { BusinessConnection } from "@/types/business";
 
 const money = (amount: number, currency: string) => `${currency} ${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -25,7 +25,13 @@ export default function MurimiFarmPage() {
   const reload = useCallback(async () => {
     if (!user || !accountId) { setConnection(null); setLoading(false); return; }
     const rows = await listBusinessConnections(user.uid, "murimi");
-    setConnection(rows.find((item) => item.sourceBusinessId === accountId) ?? null); setLoading(false);
+    const current = rows.find((item) => item.sourceBusinessId === accountId) ?? null;
+    if (current?.status === "connected") {
+      await refreshMurimiFinance(user.uid, current).catch(() => current);
+      const refreshed = await listBusinessConnections(user.uid, "murimi");
+      setConnection(refreshed.find((item) => item.sourceBusinessId === accountId) ?? current);
+    } else setConnection(current);
+    setLoading(false);
   }, [user, accountId]);
   useFocusEffect(useCallback(() => { void reload(); }, [reload]));
   const summary = useMemo(() => connection ? summarizeMurimi(connection) : null, [connection]);
@@ -40,15 +46,17 @@ export default function MurimiFarmPage() {
 
   if (loading) return <ScreenWrapper fh={false}><View style={styles.loading}><ActivityIndicator color={accent} /></View></ScreenWrapper>;
   if (!connection || !summary) return <ScreenWrapper fh={false}><View style={styles.page}><Pressable onPress={() => router.back()}><ThemedText color={accent}>‹ Back to Murimi</ThemedText></Pressable><ThemedText type="subtitle">Farm unavailable</ThemedText><ThemedText type="tiny" color={muted}>This farm is not connected on this device. Its financial records have not been changed.</ThemedText></View></ScreenWrapper>;
-  const { snapshot } = connection; const currency = snapshot.business.currency;
+  const { snapshot } = connection; const currency = snapshot.business.currency; const balanceSheet = summarizeMurimiBalanceSheet(connection);
   return <ScreenWrapper fh={false}><ScrollView contentContainerStyle={styles.page}>
     <Pressable onPress={() => router.back()} style={styles.back}><Ionicons name="arrow-back" size={20} color={accent} /><ThemedText color={accent}>Murimi farms</ThemedText></Pressable>
-    <View style={styles.header}><View><ThemedText type="title">{connection.businessName}</ThemedText><ThemedText type="tiny" color={muted}>Murimi farm · {snapshot.business.id}</ThemedText><ThemedText type="tiny" color={accent}>Farm value: {money(summary.valuedFixedAssets, currency)}</ThemedText></View><Pressable accessibilityRole="button" accessibilityLabel="Refresh farm financials" onPress={() => void refresh()} style={styles.refresh}>{refreshing ? <ActivityIndicator color={accent} /> : <Ionicons name="sync-outline" size={21} color={accent} />}</Pressable></View>
+    <View style={styles.header}><View><ThemedText type="title">{connection.businessName}</ThemedText><ThemedText type="tiny" color={muted}>Murimi farm · {snapshot.business.id}</ThemedText><ThemedText type="tiny" color={accent}>Farm value: {money(balanceSheet.netWorth, currency)}</ThemedText></View><Pressable accessibilityRole="button" accessibilityLabel="Refresh farm financials" onPress={() => void refresh()} style={styles.refresh}>{refreshing ? <ActivityIndicator color={accent} /> : <Ionicons name="sync-outline" size={21} color={accent} />}</Pressable></View>
     <View style={[styles.sourceNote, { backgroundColor: surface, borderColor: border }]}><ThemedText type="tiny" color={muted}>Read-only snapshot · source generated {new Date(connection.generatedAt).toLocaleString()} · Fynage synced {new Date(connection.lastSyncedAt).toLocaleString()}</ThemedText></View>
     {error ? <ThemedText color="#a33">{error}</ThemedText> : null}
-    <View style={styles.grid}><Metric label="Recorded income" value={money(summary.revenue, currency)} /><Metric label="Recorded expenses" value={money(summary.expenses, currency)} /><Metric label="Operating result*" value={money(summary.operatingResult, currency)} /><Metric label="Customer receivables" value={money(summary.receivables, currency)} /><Metric label="Supplier payables" value={money(summary.payables, currency)} /><Metric label="Estimated fixed assets" value={money(summary.valuedFixedAssets, currency)} /></View>
-    <ThemedText type="tiny" color={muted}>*Murimi labels this as profit before inventory and assets; it is a simplified source figure, not audited profit. Current cash balance and inventory valuation are not available in the shared snapshot. {summary.assetsWithoutCurrentValuation ? `${summary.assetsWithoutCurrentValuation} assets have no current value and are excluded.` : ""}</ThemedText>
-    <FinancialListSection title="Working capital" rows={[]} empty={`Current cash balance is not supplied. Recorded cash movement: ${money(snapshot.balances.cashNetMovement, currency)} (inflows less outflows over the available record history). This is not a current balance.`} currency={currency} surface={surface} border={border} muted={muted} />
+    <View style={styles.grid}><Metric label="Recorded income" value={money(summary.revenue, currency)} /><Metric label="Recorded expenses" value={money(summary.expenses, currency)} /><Metric label="Operating result*" value={money(summary.operatingResult, currency)} /><Metric label="Working capital" value={money(snapshot.balances.workingCapital, currency)} /><Metric label="Customer receivables" value={money(summary.receivables, currency)} /><Metric label="Supplier payables" value={money(summary.payables, currency)} /><Metric label="Consumable inventory" value={money(snapshot.balances.consumableInventory, currency)} /><Metric label="Estimated fixed assets" value={money(summary.valuedFixedAssets, currency)} /></View>
+    {connection.shareSummary ? <View style={[styles.section, { backgroundColor: surface, borderColor: border }]}><ThemedText type="defaultSemiBold">Farm shares</ThemedText><ThemedText type="tiny" color={muted}>{connection.shareSummary.totalShares} total shares · {connection.shareSummary.shareholderCount} shareholders · your allocation {connection.shareSummary.myShares} shares ({connection.shareSummary.myOwnershipPercent.toFixed(2)}%)</ThemedText><ThemedText type="tiny" color={muted}>Your share value: {money((connection.shareSummary.farmValueMinor * connection.shareSummary.myShares) / Math.max(1, connection.shareSummary.totalShares) / 100, currency)}</ThemedText></View> : null}
+    <ThemedText type="tiny" color={muted}>Working capital = recorded cash movement + customer receivables + consumable inventory − supplier payables. It uses the same source records as Murimi. *Operating result is a simplified figure, not audited profit. {summary.assetsWithoutCurrentValuation ? `${summary.assetsWithoutCurrentValuation} assets have no current value and are excluded.` : ""}</ThemedText>
+    <FinancialListSection title="Working capital" rows={[]} empty={`Working capital: ${money(snapshot.balances.workingCapital, currency)} · Cash movement ${money(snapshot.balances.cashNetMovement, currency)} · Inventory ${money(snapshot.balances.consumableInventory, currency)}`} currency={currency} surface={surface} border={border} muted={muted} />
+    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}><Metric label="Current assets" value={money(balanceSheet.currentAssets, currency)} /><Metric label="Non-current assets" value={money(balanceSheet.nonCurrentAssets, currency)} /><Metric label="Total assets" value={money(balanceSheet.totalAssets, currency)} /><Metric label="Liabilities" value={money(balanceSheet.liabilities, currency)} /><Metric label="Farm net worth" value={money(balanceSheet.netWorth, currency)} /></View>
     <FinancialListSection title="Fixed assets" rows={snapshot.assets.map((asset) => ({ ...asset, amount: asset.estimatedValue }))} empty="No fixed assets were shared." currency={currency} surface={surface} border={border} muted={muted} />
     <FinancialListSection title="Income" rows={snapshot.sales} empty="No sales were shared." currency={currency} surface={surface} border={border} muted={muted} />
     <FinancialListSection title="Expenses" rows={snapshot.expenses} empty="No expenses were shared." currency={currency} surface={surface} border={border} muted={muted} />

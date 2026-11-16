@@ -4,7 +4,7 @@ export type MurimiFinanceSnapshot = {
   schemaVersion: number;
   generatedAt: string;
   business: { id: string; name: string; currency: string };
-  balances: { cashNetMovement: number; customerReceivables: number; supplierPayables: number };
+  balances: { cashNetMovement: number; customerReceivables: number; supplierPayables: number; consumableInventory: number; workingCapital: number };
   performance: { revenue: number; operatingExpenses: number; profitBeforeInventoryAndAssets: number; cashInflows: number; cashOutflows: number };
   sales: Record<string, unknown>[];
   purchases: Record<string, unknown>[];
@@ -29,4 +29,16 @@ export type BusinessConnection = {
   generatedAt: string;
   lastSyncedAt: string;
   snapshot: MurimiFinanceSnapshot;
+  shareSummary?: FarmShareSummary;
+};
+
+export type FarmShareSummary = {
+  businessId: string;
+  totalShares: number;
+  farmValueMinor: number;
+  currency: string;
+  shareholderCount: number;
+  myShares: number;
+  myOwnershipPercent: number;
+  shareholders?: { userId: string; role: string; shares: number; ownershipPercent: number }[];
 };

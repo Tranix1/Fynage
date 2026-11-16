@@ -10,17 +10,31 @@ export type PlanningItem = {
   recordType?: "expense" | "fixed_asset" | "current_asset" | "non_current_asset" | "liability";
 };
 
+export type PurchaseSnapshot = {
+  id: string;
+  itemId: string;
+  itemName: string;
+  quantity: number;
+  unitPriceMinor: number;
+  totalMinor: number;
+  purchasedAt: string;
+  currency: string;
+};
+
 export type PlanningRecord = {
   id: string;
   ownerId: string;
   businessId: string;
   platform?: "fynage" | "murimi" | "tengesa";
+  farmId?: string;
+  farmName?: string;
   name: string;
   kind: "plan" | "list" | "project";
   currency?: string;
   status?: "active" | "completed";
   completedAt?: string;
   recordedItemIds?: string[];
+  purchaseHistory?: PurchaseSnapshot[];
   dueDate?: string;
   items: PlanningItem[];
   createdAt: string;

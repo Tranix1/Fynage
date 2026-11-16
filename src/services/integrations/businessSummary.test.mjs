@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { summarizeMurimi } from "./businessSummary.ts";
+import { estimateMurimiBatchValue, summarizeMurimi } from "./businessSummary.ts";
 
 test("Murimi summary uses source values and excludes unvalued or disposed assets", () => {
   const connection = {
@@ -24,4 +24,14 @@ test("Murimi summary uses source values and excludes unvalued or disposed assets
     valuedFixedAssets: 500,
     assetsWithoutCurrentValuation: 1,
   });
+});
+
+test("values active Murimi batches from direct value or livestock count and unit cost", () => {
+  const connection = { snapshot: { batches: [
+    { id: "chicks", numberOfChicks: 100, costPerChick: 2.5, status: "active" },
+    { id: "stock", inventoryValue: 400, status: "active" },
+    { id: "sold", totalValue: 900, status: "sold" },
+  ] } };
+
+  assert.equal(estimateMurimiBatchValue(connection), 650);
 });
