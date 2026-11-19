@@ -72,6 +72,9 @@ export async function createPlatformLedgerEntry(record: FinancialRecord, platfor
     id, ownerId: record.ownerId, businessId: platformId, accountId: platformId, sourceApp: platform,
     sourceCollection: "transactions", sourceDocumentId: record.id, amountMinor: record.amountMinor,
     currency: record.currency, direction: record.direction, transactionAt: record.occurredAt,
+    type: record.type, transactionType: record.type, principalMinor: record.principalMinor, interestMinor: record.interestMinor,
+    assetValueMinor: record.assetValueMinor, liabilityMinor: record.liabilityMinor,
     category: record.category, description: record.description, status: "posted", createdAt: now, updatedAt: now,
+    assignedPlanId: record.assignedPlanId, assignedPlanKind: record.assignedPlanKind, assignedPlanName: record.assignedPlanName,
   }, { merge: true });
 }

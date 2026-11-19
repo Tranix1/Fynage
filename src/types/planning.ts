@@ -26,6 +26,8 @@ export type PlanningRecord = {
   ownerId: string;
   businessId: string;
   platform?: "fynage" | "murimi" | "tengesa";
+  platformBusinessId?: string;
+  platformBusinessName?: string;
   farmId?: string;
   farmName?: string;
   name: string;

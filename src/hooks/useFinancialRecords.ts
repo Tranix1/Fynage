@@ -17,12 +17,13 @@ export function useFinancialRecords(businessId = "personal") {
   // account, while leaving acc2 and later accounts isolated.
   const legacyScope = activeAccountId === "acc1" && scope !== businessId ? businessId : null;
   const recordScopeKey = `${uid ?? ""}:${scope}`;
-  const [recordState, setRecordState] = useState<{ key: string; records: FinancialRecordWithSync[] }>({ key: "", records: [] });
+  const [recordState, setRecordState] = useState<{ key: string; records: FinancialRecordWithSync[]; loaded: boolean }>({ key: "", records: [], loaded: false });
   const records = useMemo(() => recordState.key === recordScopeKey ? recordState.records : [], [recordState, recordScopeKey]);
+  const loaded = recordState.key === recordScopeKey && recordState.loaded;
   const syncInFlight = useRef<Promise<void> | null>(null);
   const refresh = useCallback(async () => {
     if (!uid) {
-      setRecordState({ key: recordScopeKey, records: [] });
+      setRecordState({ key: recordScopeKey, records: [], loaded: true });
       return;
     }
     const scopes = legacyScope ? [scope, legacyScope] : [scope];
@@ -30,7 +31,7 @@ export function useFinancialRecords(businessId = "personal") {
     let murimi: FinancialRecordWithSync[] = [];
     try { murimi = await listMurimiDirectFinancialRecords(uid); } catch { /* Murimi collections may be unavailable while offline */ }
     const unique = [...new Map([...loaded, ...murimi].map((record) => [record.id, record])).values()];
-    setRecordState({ key: recordScopeKey, records: unique });
+    setRecordState({ key: recordScopeKey, records: unique, loaded: true });
   },[uid,scope,legacyScope,recordScopeKey]);
   const sync = useCallback(async () => {
     if (!uid || !(await isOnline())) return;
@@ -84,5 +85,5 @@ export function useFinancialRecords(businessId = "personal") {
     if (!uid) return;
     await deleteFinancialRecord(uid,scope,id); await refresh(); void sync();
   },[uid,scope,refresh,sync]);
-  return { records, refresh, sync, save, remove };
+  return { records, loaded, refresh, sync, save, remove };
 }

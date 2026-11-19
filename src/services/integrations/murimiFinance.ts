@@ -75,6 +75,9 @@ export async function listMurimiDirectFinancialRecords(ownerId: string): Promise
         occurredAt,
         affectsBalance: false,
         account: farm.name,
+        assignedPlanId: typeof transaction.assignedPlanId === "string" ? transaction.assignedPlanId : undefined,
+        assignedPlanKind: transaction.assignedPlanKind === "plan" || transaction.assignedPlanKind === "list" || transaction.assignedPlanKind === "project" ? transaction.assignedPlanKind : undefined,
+        assignedPlanName: typeof transaction.assignedPlanName === "string" ? transaction.assignedPlanName : undefined,
         assetValueMinor: fixedAsset ? minor(purchase?.totalCost) || amountMinor : undefined,
         centralAssetId: typeof purchase?.centralAssetId === "string" ? purchase.centralAssetId : undefined,
         source: "murimi",
@@ -188,13 +191,14 @@ export async function saveMurimiSharedPlanPurchase(input: { ownerId: string; far
     await setDoc(doc(collection(db, "users", input.ownerId, "farmAccounts", input.farmId, "assets"), assetId), { id: assetId, ownerId: input.ownerId, accountId: input.farmId, purchaseId, centralAssetId: input.centralAssetId, name: input.itemName, category: assetCategory, purchaseDate: input.date, inServiceDate: input.date, originalCost: totalCost, estimatedValue: totalCost, quantity: input.quantity, accumulatedDepreciation: 0, status: "not_in_use", notes: input.notes, createdAt, updatedAt: createdAt }, { merge: true });
   }
 }
-export async function saveMurimiLoanMovement(input: { ownerId: string; farmId: string; loanId: string; eventId: string; amountMinor: number; direction: "inflow" | "outflow"; receivableChangeMinor?: number; payableChangeMinor?: number; date: string; description: string }): Promise<void> {
+export async function saveMurimiLoanMovement(input: { ownerId: string; farmId: string; loanId: string; eventId: string; amountMinor: number; direction: "inflow" | "outflow"; receivableChangeMinor?: number; payableChangeMinor?: number; date: string; description: string; assignedPlanId?: string; assignedPlanKind?: "plan" | "list" | "project"; assignedPlanName?: string }): Promise<void> {
   const id = `fynage_loan_${input.loanId}_${input.eventId}`;
   await setDoc(doc(collection(db, "users", input.ownerId, "farmAccounts", input.farmId, "transactions"), id), {
     id, ownerId: input.ownerId, accountId: input.farmId, amount: input.amountMinor / 100,
     currency: "USD", direction: input.direction, date: input.date, category: "Loan",
     description: input.description, source: "fynage", loanReceivableChange: (input.receivableChangeMinor ?? 0) / 100,
     loanPayableChange: (input.payableChangeMinor ?? 0) / 100, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    assignedPlanId: input.assignedPlanId, assignedPlanKind: input.assignedPlanKind, assignedPlanName: input.assignedPlanName,
   }, { merge: true });
 }
 
@@ -236,14 +240,15 @@ export async function connectMurimiFinance(ownerId: string, accountId: string): 
 export async function refreshMurimiFinance(ownerId: string, connection: BusinessConnection): Promise<BusinessConnection> {
   try {
     const snapshot = await buildSnapshot(ownerId, connection.sourceBusinessId);
-    const shareSummary = await syncFarmShares(snapshot).catch(() => connection.shareSummary);
+    const shareSummary = await syncFarmShares(snapshot).catch(() => undefined);
     const balanceSheet = summarizeMurimiBalanceSheet({ id: `murimi_${connection.sourceBusinessId}`, ownerId, appId: "murimi", sourceBusinessId: connection.sourceBusinessId, businessName: snapshot.business.name, status: "connected", generatedAt: snapshot.generatedAt, lastSyncedAt: snapshot.generatedAt, snapshot });
-    const farmValueMinor = shareSummary?.farmValueMinor ?? Math.max(0, Math.round(balanceSheet.netWorth * 100));
-    const ownedValueMinor = shareSummary ? Math.round(farmValueMinor * shareSummary.myShares / Math.max(1, shareSummary.totalShares)) : farmValueMinor;
+    const farmValueMinor = Math.max(0, Math.round(balanceSheet.netWorth * 100));
+    const effectiveShareSummary = shareSummary ?? (connection.shareSummary ? { ...connection.shareSummary, farmValueMinor, currency: snapshot.business.currency } : undefined);
+    const ownedValueMinor = effectiveShareSummary ? Math.round(farmValueMinor * effectiveShareSummary.myShares / Math.max(1, effectiveShareSummary.totalShares)) : farmValueMinor;
     const date = localFinancialDate(snapshot.generatedAt);
     const point = { id: `murimi_networth_${connection.sourceBusinessId}_${date}`, date, netWorthMinor: ownedValueMinor };
     const history = [...(connection.netWorthHistory ?? []).filter((item) => item.date.slice(0, 10) !== date), point].sort((a, b) => a.date.localeCompare(b.date)).slice(-5000);
-    const next: BusinessConnection = { ...connection, businessName: snapshot.business.name, status: "connected", generatedAt: snapshot.generatedAt, lastSyncedAt: new Date().toISOString(), snapshot, shareSummary, netWorthHistory: history };
+    const next: BusinessConnection = { ...connection, businessName: snapshot.business.name, status: "connected", generatedAt: snapshot.generatedAt, lastSyncedAt: new Date().toISOString(), snapshot, shareSummary: effectiveShareSummary, netWorthHistory: history };
     await saveBusinessConnection(next);
     return next;
   } catch (error) {

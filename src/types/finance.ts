@@ -41,6 +41,7 @@ export type FinancialRecord = {
   /** Optional planning and cross-app attribution chosen by the user. */
   assignedPlanId?: string;
   assignedPlanKind?: "plan" | "list" | "project";
+  assignedPlanName?: string;
   assignedPlatform?: "fynage" | "murimi" | "tengesa";
   sourceDetails?: { sender: string; messageDate: string; messageBody: string; providerId?: string };
   linkedSmsDetails?: Array<{ sender: string; messageDate: string; messageBody: string; providerId?: string }>;

@@ -48,6 +48,9 @@ export type LoanEntry = {
   repayments?: { id: string; amountMinor: number; principalMinor?: number; interestMinor: number; paidAt: string; byUid?: string }[];
   dueDate?: string;
   note?: string;
+  assignedPlanId?: string;
+  assignedPlanKind?: "plan" | "list" | "project";
+  assignedPlanName?: string;
   createdAt: string;
   updatedAt: string;
 };
