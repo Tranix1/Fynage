@@ -4,6 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import About from "./About";
 import Home from "./Home/Index";
+import AssetsHome from "./Assets/Index";
 import BusinessHome from "./Business/Index";
 import InsightsHome from "./Insights/Index";
 import MoreHome from "./More/Index";
@@ -14,7 +15,7 @@ import { useAuth } from "@/context/AuthContext";
 import { ThemedText } from "@/components/ThemedText";
 import { useThemeColor } from "@/hooks/useThemeColor";
 
-type MainTab = "Home" | "Business" | "Insights" | "More" | "About";
+type MainTab = "Home" | "Assets" | "Business" | "Insights" | "More" | "About";
 
 export default function Index() {
   const { user, isSignedIn, isLoading, subscriptionAccess, subscriptionSkipped } = useAuth();
@@ -55,6 +56,7 @@ export default function Index() {
     );
   } else {
     content = selectedTab === "Business" ? <BusinessHome />
+      : selectedTab === "Assets" ? <AssetsHome />
       : selectedTab === "Insights" ? <InsightsHome />
       : selectedTab === "More" ? <MoreHome />
       : <Home />;
@@ -64,7 +66,7 @@ export default function Index() {
     <View style={[styles.container, { backgroundColor: background }]}>
       <View style={styles.content}>{content}</View>
       {!needsSubscription && <View style={[styles.tabBar, { backgroundColor: background, paddingBottom: Math.max(bottom, 10) }]}>
-        {(isSignedIn && !needsAccountEntry ? ["Home", "Business", "Insights", "More"] as const : ["Home", "About"] as const).map((tab) => {
+        {(isSignedIn && !needsAccountEntry ? ["Home", "Assets", "Business", "Insights", "More"] as const : ["Home", "About"] as const).map((tab) => {
           const selected = selectedTab === tab;
           return (
             <TouchableOpacity
@@ -75,7 +77,7 @@ export default function Index() {
               style={styles.tab}
             >
               <Ionicons
-                name={tab === "Home" ? "home-outline" : tab === "Business" ? "briefcase-outline" : tab === "Insights" ? "analytics-outline" : tab === "More" ? "ellipsis-horizontal-circle-outline" : "information-circle-outline"}
+                name={tab === "Home" ? "home-outline" : tab === "Assets" ? "cube-outline" : tab === "Business" ? "briefcase-outline" : tab === "Insights" ? "analytics-outline" : tab === "More" ? "ellipsis-horizontal-circle-outline" : "information-circle-outline"}
                 size={22}
                 color={selected ? accent : iconColor}
               />

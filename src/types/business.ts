@@ -10,7 +10,7 @@ export type MurimiFinanceSnapshot = {
   purchases: Record<string, unknown>[];
   expenses: Record<string, unknown>[];
   transactions: Record<string, unknown>[];
-  assets: { id: string; name?: string; category?: string; estimatedValue?: number; originalCost?: number; status?: string }[];
+  assets: { id: string; name?: string; category?: string; estimatedValue?: number; originalCost?: number; status?: string; purchaseId?: string; centralAssetId?: string }[];
   batches: Record<string, unknown>[];
   inventory: Record<string, unknown>[];
   stockMovements: Record<string, unknown>[];
@@ -30,6 +30,8 @@ export type BusinessConnection = {
   lastSyncedAt: string;
   snapshot: MurimiFinanceSnapshot;
   shareSummary?: FarmShareSummary;
+  /** Locally retained point-in-time farm valuations. History begins at connection/sync time. */
+  netWorthHistory?: { id: string; date: string; netWorthMinor: number }[];
 };
 
 export type FarmShareSummary = {

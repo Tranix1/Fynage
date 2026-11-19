@@ -30,6 +30,14 @@ export type LoanEntry = {
   borrowerUid: string;
   lenderPhone: string;
   borrowerPhone: string;
+  lenderName?: string;
+  borrowerName?: string;
+  sourceCategoryId?: string;
+  sourceCategoryName?: string;
+  platform?: "fynage" | "murimi" | "tengesa";
+  platformBusinessId?: string;
+  farmId?: string;
+  farmName?: string;
   amountMinor: number;
   currency: string;
   interestBps: number;
@@ -40,6 +48,14 @@ export type LoanEntry = {
   repayments?: { id: string; amountMinor: number; principalMinor?: number; interestMinor: number; paidAt: string; byUid?: string }[];
   dueDate?: string;
   note?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type LoanSourceCategory = {
+  id: string;
+  ownerId: string;
+  name: string;
   createdAt: string;
   updatedAt: string;
 };

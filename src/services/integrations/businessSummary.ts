@@ -22,8 +22,10 @@ export function summarizeMurimiBalanceSheet(connection: BusinessConnection): Mur
   const batchAssets = estimateMurimiBatchValue(connection);
   const consumableInventory = balances.consumableInventory ?? 0;
   const cashMovement = balances.cashNetMovement;
-  const currentAssets = cashMovement + balances.customerReceivables + consumableInventory + batchAssets;
-  const liabilities = balances.supplierPayables;
+  const loanReceivables = connection.snapshot.transactions.reduce((sum, row) => sum + numeric(row.loanReceivableChange), 0);
+  const loanPayables = connection.snapshot.transactions.reduce((sum, row) => sum + numeric(row.loanPayableChange), 0);
+  const currentAssets = cashMovement + balances.customerReceivables + consumableInventory + batchAssets + loanReceivables;
+  const liabilities = balances.supplierPayables + loanPayables;
   const nonCurrentAssets = summary.valuedFixedAssets;
   const totalAssets = currentAssets + nonCurrentAssets;
   return { workingCapital: balances.workingCapital, currentAssets, nonCurrentAssets, totalAssets, liabilities, netWorth: totalAssets - liabilities, batchAssets, consumableInventory, cashMovement, receivables: balances.customerReceivables };
@@ -31,8 +33,10 @@ export function summarizeMurimiBalanceSheet(connection: BusinessConnection): Mur
 
 export function summarizeMurimi(connection: BusinessConnection): MurimiSummary {
   const { snapshot } = connection;
-  const valued = snapshot.assets.filter((asset) => asset.status !== "disposed" && typeof asset.estimatedValue === "number" && Number.isFinite(asset.estimatedValue));
-  const unknown = snapshot.assets.filter((asset) => asset.status !== "disposed" && !(typeof asset.estimatedValue === "number" && Number.isFinite(asset.estimatedValue)));
+  const centrallyRegisteredPurchaseIds = new Set((snapshot.purchases ?? []).filter((purchase) => typeof purchase.centralAssetId === "string" && purchase.centralAssetId).map((purchase) => String(purchase.id)));
+  const assets = snapshot.assets.filter((asset) => !asset.centralAssetId && !(asset.purchaseId && centrallyRegisteredPurchaseIds.has(asset.purchaseId)));
+  const valued = assets.filter((asset) => asset.status !== "disposed" && typeof asset.estimatedValue === "number" && Number.isFinite(asset.estimatedValue));
+  const unknown = assets.filter((asset) => asset.status !== "disposed" && !(typeof asset.estimatedValue === "number" && Number.isFinite(asset.estimatedValue)));
   return {
     revenue: snapshot.performance.revenue,
     expenses: snapshot.performance.operatingExpenses,

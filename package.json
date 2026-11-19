@@ -59,7 +59,7 @@
   },
   "scripts": {
     "start": "expo start",
-    "test": "node --experimental-strip-types --test src/services/integrations/businessSummary.test.mjs src/services/sms/transactionParser.test.mjs",
+    "test": "node --experimental-strip-types --test src/services/assets/assetCalculations.test.mjs src/services/finance/netWorthHistory.test.mjs src/services/integrations/businessSummary.test.mjs src/services/sms/transactionParser.test.mjs",
     "reset-project": "node ./scripts/reset-project.js",
     "android": "expo run:android",
     "ios": "expo run:ios",

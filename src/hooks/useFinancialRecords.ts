@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppState } from "react-native";
 import { useFocusEffect } from "expo-router";
 import { useAuth } from "@/context/AuthContext";
@@ -16,11 +16,13 @@ export function useFinancialRecords(businessId = "personal") {
   // businessId directly. Keep those records visible for the restored first
   // account, while leaving acc2 and later accounts isolated.
   const legacyScope = activeAccountId === "acc1" && scope !== businessId ? businessId : null;
-  const [records,setRecords] = useState<FinancialRecordWithSync[]>([]);
+  const recordScopeKey = `${uid ?? ""}:${scope}`;
+  const [recordState, setRecordState] = useState<{ key: string; records: FinancialRecordWithSync[] }>({ key: "", records: [] });
+  const records = useMemo(() => recordState.key === recordScopeKey ? recordState.records : [], [recordState, recordScopeKey]);
   const syncInFlight = useRef<Promise<void> | null>(null);
   const refresh = useCallback(async () => {
     if (!uid) {
-      setRecords([]);
+      setRecordState({ key: recordScopeKey, records: [] });
       return;
     }
     const scopes = legacyScope ? [scope, legacyScope] : [scope];
@@ -28,8 +30,8 @@ export function useFinancialRecords(businessId = "personal") {
     let murimi: FinancialRecordWithSync[] = [];
     try { murimi = await listMurimiDirectFinancialRecords(uid); } catch { /* Murimi collections may be unavailable while offline */ }
     const unique = [...new Map([...loaded, ...murimi].map((record) => [record.id, record])).values()];
-    setRecords(unique);
-  },[uid,scope,legacyScope]);
+    setRecordState({ key: recordScopeKey, records: unique });
+  },[uid,scope,legacyScope,recordScopeKey]);
   const sync = useCallback(async () => {
     if (!uid || !(await isOnline())) return;
     if (syncInFlight.current) return syncInFlight.current;

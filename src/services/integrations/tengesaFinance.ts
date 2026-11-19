@@ -12,9 +12,12 @@ export type TengesaStoreSummary = {
   role: string;
   subscriptionActive: boolean;
   financialAccess: boolean;
+  /** Cumulative posted-ledger value (inflows minus outflows) at recorded dates. */
+  history: { id: string; date: string; netWorthMinor: number }[];
 };
 
 const firestore = getFirestore();
+const localFinancialDate = (value: string) => { const date = new Date(value); return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`; };
 
 /** Reads only businesses and ledger rows returned by the trusted membership/entitlement service. */
 export async function listTengesaFinance(uid: string): Promise<TengesaStoreSummary[]> {
@@ -40,6 +43,22 @@ export async function listTengesaFinance(uid: string): Promise<TengesaStoreSumma
     }
     const currency = String(entries[0]?.currency ?? "USD").toUpperCase();
     const currencyEntries = entries.filter((entry) => String(entry.currency ?? "USD").toUpperCase() === currency);
+    const daily = new Map<string, number>();
+    for (const entry of currencyEntries) {
+      const rawDate = [entry.occurredAt, entry.transactionDate, entry.date, entry.postedAt].find((value) => typeof value === "string" && /^\d{4}-\d{2}-\d{2}/.test(value)) as string | undefined;
+      if (!rawDate) continue;
+      const date = /^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : localFinancialDate(rawDate);
+      const amount = Number(entry.amountMinor) || 0;
+      daily.set(date, (daily.get(date) ?? 0) + (entry.direction === "in" ? amount : entry.direction === "out" ? -amount : 0));
+    }
+    let running = 0;
+    const history = [...daily.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([date, delta]) => {
+      running += delta;
+      return { id: `tengesa_${business.id}_${date}`, date, netWorthMinor: running };
+    });
+    const currentValue = currencyEntries.reduce((sum, row) => sum + (row.direction === "in" ? Number(row.amountMinor) || 0 : row.direction === "out" ? -(Number(row.amountMinor) || 0) : 0), 0);
+    const observedAt = localFinancialDate(new Date().toISOString());
+    if (history.length === 0 || history[history.length - 1].netWorthMinor !== currentValue || history[history.length - 1].date !== observedAt) history.push({ id: `tengesa_${business.id}_${observedAt}`, date: observedAt, netWorthMinor: currentValue });
     return {
       id: business.id,
       name: business.name || "Tengesa store",
@@ -51,6 +70,7 @@ export async function listTengesaFinance(uid: string): Promise<TengesaStoreSumma
       role: business.role,
       subscriptionActive,
       financialAccess: ["owner", "admin", "investor"].includes(business.role),
+      history,
     };
   }));
 }

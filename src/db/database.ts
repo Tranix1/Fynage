@@ -2,6 +2,10 @@ import * as SQLite from "expo-sqlite";
 
 const DATABASE_NAME = "fynage.db";
 let databasePromise: Promise<SQLite.SQLiteDatabase> | undefined;
+// Expo SQLite runs on a shared connection. Keep exclusive write transactions
+// in one queue so overlapping screen, auth and background-sync work cannot
+// contend for the same database lock.
+let transactionQueue: Promise<void> = Promise.resolve();
 
 async function migrate(database: SQLite.SQLiteDatabase): Promise<void> {
   await database.execAsync("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");
@@ -112,7 +116,12 @@ export function getDatabase(): Promise<SQLite.SQLiteDatabase> {
 }
 
 export async function withDatabaseTransaction<T>(work: (db: SQLite.SQLiteDatabase) => Promise<T>): Promise<T> {
-  const db = await getDatabase(); let result!: T;
-  await db.withExclusiveTransactionAsync(async (tx) => { result = await work(tx); });
+  const db = await getDatabase();
+  let result!: T;
+  const transaction = transactionQueue.then(async () => {
+    await db.withExclusiveTransactionAsync(async (tx) => { result = await work(tx); });
+  });
+  transactionQueue = transaction.then(() => undefined, () => undefined);
+  await transaction;
   return result;
 }

@@ -35,6 +35,8 @@ export type FinancialRecord = {
   account?: string; toAccount?: string; provider?: string; availableBalanceMinor?: number; counterparty?: string; reference?: string; notes?: string;
   principalMinor?: number; interestMinor?: number; feeMinor?: number;
   assetValueMinor?: number; liabilityMinor?: number;
+  /** Links a capital purchase ledger movement to its single central asset record. */
+  centralAssetId?: string;
   source?: TransactionSource; sourceKey?: string; sourceFingerprint?: string;
   /** Optional planning and cross-app attribution chosen by the user. */
   assignedPlanId?: string;
@@ -76,6 +78,8 @@ export type FinancialRecordWithSync = FinancialRecord & { syncStatus: FinancialS
 export type FinancialCategory = {
   id: string; ownerId: string; businessId: string; name: string;
   direction?: Exclude<TransactionDirection, "transfer">;
+  /** Reusable item names saved under this category and synced with the category document. */
+  itemNames?: string[];
   archived: boolean; updatedAt: string; revision: number;
 };
 

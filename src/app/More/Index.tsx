@@ -15,8 +15,8 @@ import { cancelSaturdayBalanceReminder, isSaturdayBalanceReminderScheduled, sche
 
 const links = [
   { title: "Personal accounts", subtitle: "Cash, mobile money and bank balances", icon: "wallet-outline" as const, route: "/Account/Accounts" },
-  { title: "Savings", subtitle: "Personal or business savings with interest", icon: "trending-up-outline" as const, route: "/Savings" },
   { title: "Loans", subtitle: "Issue or receive loans and sync with users", icon: "swap-horizontal-outline" as const, route: "/Loans" },
+  { title: "Savings", subtitle: "Personal or business savings with interest", icon: "trending-up-outline" as const, route: "/Savings" },
   { title: "Business connections", subtitle: "Connect or review Murimi and other apps", icon: "git-network-outline" as const, route: "/Business/Index" },
   { title: "Team access", subtitle: "Invite or revoke business members", icon: "people-outline" as const, route: "/Business/Members" },
   { title: "Subscription & referrals", subtitle: "Shared access, renewal and credits", icon: "ribbon-outline" as const, route: "/Subscription" },

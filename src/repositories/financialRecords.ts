@@ -4,6 +4,15 @@ import { dedupeLedgerRecords, getSharedLedgerRecordId } from "@/services/finance
 import { mergeRemoteFinancialTombstone } from "@/services/finance/tombstones";
 export { dedupeLedgerRecords } from "@/services/finance/ledgerIdentity";
 
+const mergeCategoryItemNames = (...lists: (string[] | undefined)[]) => {
+  const names = new Map<string, string>();
+  for (const list of lists) for (const value of list ?? []) {
+    const name = value.trim().replace(/\s+/g, " ");
+    if (name && !names.has(name.toLocaleLowerCase())) names.set(name.toLocaleLowerCase(), name);
+  }
+  return [...names.values()].slice(0, 500);
+};
+
 export type FinancialAccountWithSync = FinancialAccount & { syncStatus: FinancialRecordWithSync["syncStatus"] };
 
 export function normalizeLedgerRecord(input: Partial<FinancialRecord>, fallbackOwnerId: string, fallbackBusinessId: string): FinancialRecord {
@@ -184,7 +193,7 @@ export async function saveFinancialRecord(input: FinancialRecord): Promise<Finan
       if (duplicate) { classificationStatus = "potential_duplicate"; record.potentialDuplicateOf = duplicate.record_id; }
     }
     const oldRecord = old ? JSON.parse(old.payload) as FinancialRecord : undefined;
-    const auditFields: (keyof FinancialRecord)[] = ["type", "direction", "amountMinor", "currency", "category", "description", "occurredAt", "affectsBalance", "balanceBeforeMinor", "balanceAfterMinor", "reconciliationDifferenceMinor", "accountId", "toAccountId", "account", "toAccount", "counterparty", "reference", "notes", "principalMinor", "interestMinor", "feeMinor", "assetValueMinor", "liabilityMinor", "classificationStatus"];
+    const auditFields: (keyof FinancialRecord)[] = ["type", "direction", "amountMinor", "currency", "category", "description", "occurredAt", "affectsBalance", "balanceBeforeMinor", "balanceAfterMinor", "reconciliationDifferenceMinor", "accountId", "toAccountId", "account", "toAccount", "counterparty", "reference", "notes", "principalMinor", "interestMinor", "feeMinor", "assetValueMinor", "centralAssetId", "liabilityMinor", "classificationStatus"];
     const changes = oldRecord ? auditFields.filter((field) => JSON.stringify(oldRecord[field]) !== JSON.stringify(record[field])).map((field) => ({ field, ...(oldRecord[field] !== undefined ? { from: oldRecord[field] } : {}), ...(record[field] !== undefined ? { to: record[field] } : {}) })) : [];
     const auditEntry: FinancialAuditEntry | undefined = !oldRecord
       ? { id: `audit_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`, action: "created", changedAt: timestamp, actorId: record.ownerId, reason: record.notes }
@@ -328,11 +337,49 @@ export async function saveFinancialCategory(ownerId: string, businessId: string,
   return withDatabaseTransaction(async (db) => {
     const old = await db.getFirstAsync<{ payload: string; revision: number }>("SELECT payload,revision FROM financial_categories WHERE owner_id=? AND business_id=? AND category_id=?", ownerId, businessId, categoryId);
     const previous = old ? JSON.parse(old.payload) as FinancialCategory : undefined;
-    const category: FinancialCategory = { id: categoryId, ownerId, businessId, name: normalizedName, direction, archived: previous?.archived ?? false, updatedAt: timestamp, revision: (old?.revision ?? 0) + 1 };
+    const category: FinancialCategory = { id: categoryId, ownerId, businessId, name: normalizedName, direction, itemNames: previous?.itemNames ?? [], archived: previous?.archived ?? false, updatedAt: timestamp, revision: (old?.revision ?? 0) + 1 };
     const payload = JSON.stringify(category);
     await db.runAsync("INSERT INTO financial_categories(owner_id,business_id,category_id,payload,revision,sync_status,updated_at) VALUES(?,?,?,?,?,'pending',?) ON CONFLICT(owner_id,business_id,category_id) DO UPDATE SET payload=excluded.payload,revision=excluded.revision,sync_status='pending',updated_at=excluded.updated_at", ownerId, businessId, categoryId, payload, category.revision, timestamp);
     await db.runAsync("INSERT INTO category_sync_queue(owner_id,business_id,category_id,payload,revision,attempts,retry_at,queued_at) VALUES(?,?,?,?,?,0,0,?) ON CONFLICT(owner_id,business_id,category_id) DO UPDATE SET payload=excluded.payload,revision=excluded.revision,attempts=0,retry_at=0,queued_at=excluded.queued_at", ownerId, businessId, categoryId, payload, category.revision, timestamp);
     return category;
+  });
+}
+
+export async function saveFinancialCategoryItem(ownerId: string, businessId: string, categoryName: string, direction: Exclude<TransactionDirection, "transfer">, itemName: string, categoryId?: string): Promise<FinancialCategory> {
+  const normalizedName = categoryName.trim().replace(/\s+/g, " ");
+  const normalizedItem = itemName.trim().replace(/\s+/g, " ");
+  if (!normalizedName || normalizedName.length > 48) throw new Error("Enter a valid category name first.");
+  if (!normalizedItem || normalizedItem.length > 100) throw new Error("Item name must be between 1 and 100 characters.");
+  const categoryKey = normalizedName.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+  const id = categoryId ?? `${businessId}_${direction}_cat_${categoryKey}`;
+  const timestamp = now();
+  return withDatabaseTransaction(async (db) => {
+    const old = await db.getFirstAsync<{ payload: string; revision: number }>("SELECT payload,revision FROM financial_categories WHERE owner_id=? AND business_id=? AND category_id=?", ownerId, businessId, id);
+    const previous = old ? JSON.parse(old.payload) as FinancialCategory : undefined;
+    const itemNames = mergeCategoryItemNames(previous?.itemNames, [normalizedItem]);
+    if (previous && itemNames.length === (previous.itemNames ?? []).length) return previous;
+    const category: FinancialCategory = { id, ownerId, businessId, name: normalizedName, direction, itemNames, archived: previous?.archived ?? false, updatedAt: timestamp, revision: (old?.revision ?? 0) + 1 };
+    const payload = JSON.stringify(category);
+    await db.runAsync("INSERT INTO financial_categories(owner_id,business_id,category_id,payload,revision,sync_status,updated_at) VALUES(?,?,?,?,?,'pending',?) ON CONFLICT(owner_id,business_id,category_id) DO UPDATE SET payload=excluded.payload,revision=excluded.revision,sync_status='pending',updated_at=excluded.updated_at", ownerId, businessId, id, payload, category.revision, timestamp);
+    await db.runAsync("INSERT INTO category_sync_queue(owner_id,business_id,category_id,payload,revision,attempts,retry_at,queued_at) VALUES(?,?,?,?,?,0,0,?) ON CONFLICT(owner_id,business_id,category_id) DO UPDATE SET payload=excluded.payload,revision=excluded.revision,attempts=0,retry_at=0,queued_at=excluded.queued_at", ownerId, businessId, id, payload, category.revision, timestamp);
+    return category;
+  });
+}
+
+export async function mergeFinancialCategoryItems(ownerId: string, businessId: string, rows: { categoryId: string; itemNames: string[] }[]): Promise<void> {
+  await withDatabaseTransaction(async (db) => {
+    for (const row of rows) {
+      const existing = await db.getFirstAsync<{ payload: string; revision: number }>("SELECT payload,revision FROM financial_categories WHERE owner_id=? AND business_id=? AND category_id=?", ownerId, businessId, row.categoryId);
+      if (!existing) continue;
+      const previous = JSON.parse(existing.payload) as FinancialCategory;
+      const itemNames = mergeCategoryItemNames(previous.itemNames, row.itemNames);
+      if (itemNames.length === (previous.itemNames ?? []).length) continue;
+      const timestamp = now();
+      const category: FinancialCategory = { ...previous, itemNames, updatedAt: timestamp, revision: existing.revision + 1 };
+      const payload = JSON.stringify(category);
+      await db.runAsync("UPDATE financial_categories SET payload=?,revision=?,sync_status='pending',updated_at=? WHERE owner_id=? AND business_id=? AND category_id=?", payload, category.revision, timestamp, ownerId, businessId, row.categoryId);
+      await db.runAsync("INSERT INTO category_sync_queue(owner_id,business_id,category_id,payload,revision,attempts,retry_at,queued_at) VALUES(?,?,?,?,?,0,0,?) ON CONFLICT(owner_id,business_id,category_id) DO UPDATE SET payload=excluded.payload,revision=excluded.revision,attempts=0,retry_at=0,queued_at=excluded.queued_at", ownerId, businessId, row.categoryId, payload, category.revision, timestamp);
+    }
   });
 }
 
@@ -354,10 +401,14 @@ export async function mergeRemoteFinancialCategories(ownerId: string, businessId
       if (category.ownerId !== ownerId || category.businessId !== businessId) continue;
       const [queued, local] = await Promise.all([
         db.getFirstAsync("SELECT category_id FROM category_sync_queue WHERE owner_id=? AND business_id=? AND category_id=?", ownerId, businessId, category.id),
-        db.getFirstAsync<{ revision: number }>("SELECT revision FROM financial_categories WHERE owner_id=? AND business_id=? AND category_id=?", ownerId, businessId, category.id),
+        db.getFirstAsync<{ payload: string; revision: number }>("SELECT payload,revision FROM financial_categories WHERE owner_id=? AND business_id=? AND category_id=?", ownerId, businessId, category.id),
       ]);
       if (queued || (local && local.revision > category.revision)) continue;
-      await db.runAsync("INSERT INTO financial_categories(owner_id,business_id,category_id,payload,revision,sync_status,updated_at) VALUES(?,?,?,?,?,'synced',?) ON CONFLICT(owner_id,business_id,category_id) DO UPDATE SET payload=excluded.payload,revision=excluded.revision,sync_status='synced',updated_at=excluded.updated_at WHERE financial_categories.revision<=excluded.revision AND NOT EXISTS(SELECT 1 FROM category_sync_queue WHERE owner_id=? AND business_id=? AND category_id=?)", ownerId, businessId, category.id, JSON.stringify(category), category.revision, category.updatedAt, ownerId, businessId, category.id);
+      const localCategory = local ? JSON.parse(local.payload) as FinancialCategory : undefined;
+      const merged: FinancialCategory = localCategory
+        ? { ...category, itemNames: mergeCategoryItemNames(localCategory.itemNames, category.itemNames) }
+        : { ...category, itemNames: mergeCategoryItemNames(category.itemNames) };
+      await db.runAsync("INSERT INTO financial_categories(owner_id,business_id,category_id,payload,revision,sync_status,updated_at) VALUES(?,?,?,?,?,'synced',?) ON CONFLICT(owner_id,business_id,category_id) DO UPDATE SET payload=excluded.payload,revision=excluded.revision,sync_status='synced',updated_at=excluded.updated_at WHERE financial_categories.revision<=excluded.revision AND NOT EXISTS(SELECT 1 FROM category_sync_queue WHERE owner_id=? AND business_id=? AND category_id=?)", ownerId, businessId, category.id, JSON.stringify(merged), merged.revision, merged.updatedAt, ownerId, businessId, category.id);
     }
   });
 }

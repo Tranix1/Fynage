@@ -18,7 +18,13 @@ service cloud.firestore {
       allow read: if owns(resource.data.ownerId);
       allow create, update: if owns(request.resource.data.ownerId)
         && request.resource.data.id == planId
-        && request.resource.data.businessId is string;
+        && request.resource.data.businessId is string
+        && (!('platform' in request.resource.data) || request.resource.data.platform in ['fynage', 'murimi', 'tengesa'])
+        && (!('farmId' in request.resource.data) || request.resource.data.farmId is string)
+        && (!('platform' in request.resource.data) || request.resource.data.platform != 'murimi'
+          || ('farmId' in request.resource.data
+            && exists(/databases/$(database)/documents/users/$(request.auth.uid)/farmAccounts/$(request.resource.data.farmId))
+           ));
       allow delete: if owns(resource.data.ownerId);
     }
     function owns(userId) {
@@ -165,8 +171,34 @@ service cloud.firestore {
 
     // Fynage's personal finance cloud mirror. These paths do not grant access
     // to shared business records owned by another user.
+    match /users/{userId}/loanSourceCategories/{categoryId} {
+      allow read: if owns(userId);
+      allow create, update: if owns(userId)
+        && request.resource.data.ownerId == userId
+        && request.resource.data.id == categoryId
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 60;
+      allow delete: if owns(userId) && resource.data.ownerId == userId;
+    }
+    match /users/{userId}/assets/{assetId} {
+      allow read: if owns(userId);
+      allow create, update: if owns(userId)
+        && request.resource.data.ownerId == userId
+        && request.resource.data.id == assetId
+        && request.resource.data.acquisitionCostMinor is int
+        && request.resource.data.acquisitionCostMinor >= 0
+        && request.resource.data.currentValuationMinor is int
+        && request.resource.data.currentValuationMinor >= 0
+        && request.resource.data.revision is int
+        && request.resource.data.status in ['active', 'inactive', 'disposed'];
+      allow delete: if false;
+    }
     match /users/{userId}/financial_ledger/{recordId} {
-      allow read: if owns(userId) && resource.data.ownerId == userId;
+      // The parent UID path already scopes reads to the signed-in owner.
+      // Keep this path-based so Firestore can authorize the app's businessId
+      // sync queries without requiring an extra ownerId query filter.
+      allow read: if owns(userId);
       allow create, update: if owns(userId)
         && request.resource.data.ownerId == userId
         && request.resource.data.id == recordId
@@ -174,7 +206,7 @@ service cloud.firestore {
       allow delete: if false;
     }
     match /users/{userId}/financial_categories/{categoryId} {
-      allow read: if owns(userId) && resource.data.ownerId == userId;
+      allow read: if owns(userId);
       allow create, update: if owns(userId)
         && request.resource.data.ownerId == userId
         && request.resource.data.id == categoryId
@@ -182,7 +214,7 @@ service cloud.firestore {
       allow delete: if false;
     }
     match /users/{userId}/financial_accounts/{accountId} {
-      allow read: if owns(userId) && resource.data.ownerId == userId;
+      allow read: if owns(userId);
       allow create, update: if owns(userId)
         && request.resource.data.ownerId == userId
         && request.resource.data.id == accountId

@@ -29,8 +29,9 @@ export async function listSmsReviewCandidates(ownerId: string, businessId: strin
 }
 
 export async function resolveSmsReviewCandidate(ownerId: string, businessId: string, key: string, decision: "recorded" | "dismissed"): Promise<void> {
-  const db = await getDatabase();
-  await db.runAsync("UPDATE sms_review_queue SET status=? WHERE owner_id=? AND business_id=? AND message_key=?", decision, ownerId, businessId, key);
+  await withDatabaseTransaction(async (db) => {
+    await db.runAsync("UPDATE sms_review_queue SET status=? WHERE owner_id=? AND business_id=? AND message_key=?", decision, ownerId, businessId, key);
+  });
 }
 
 export function makeSmsReviewCandidate(message: SmsMessage, provider: string, reason: string): SmsReviewCandidate {

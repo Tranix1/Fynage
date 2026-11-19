@@ -1,7 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { collection, doc, getDocs, getFirestore, query, setDoc, where } from "@react-native-firebase/firestore";
 import type { FinancialRecord } from "@/types/finance";
-import type { LoanEntry, SavingsEntry } from "@/types/moneyGoals";
+import type { LoanEntry, LoanSourceCategory, SavingsEntry } from "@/types/moneyGoals";
 
 const db = () => getFirestore();
 const savingsKey = (uid: string) => `fynage.savings.${uid}`;
@@ -34,6 +34,31 @@ export async function listLoans(uid: string): Promise<LoanEntry[]> {
 export async function saveLoan(entry: LoanEntry, ownerUid: string): Promise<void> {
   await localUpsert(loansKey(ownerUid), entry);
   try { await setDoc(doc(collection(db(), "loans"), entry.id), entry, { merge: true }); } catch { /* local-first fallback */ }
+}
+
+const loanSourceCategoriesKey = (uid: string) => `fynage.loanSourceCategories.${uid}`;
+
+export async function listLoanSourceCategories(uid: string): Promise<LoanSourceCategory[]> {
+  const local = await localList<LoanSourceCategory>(loanSourceCategoriesKey(uid));
+  try {
+    const remote = await getDocs(collection(db(), "users", uid, "loanSourceCategories"));
+    const rows = remote.docs.map((item) => ({ ...item.data(), id: item.id }) as LoanSourceCategory).filter((item) => item.ownerId === uid);
+    const merged = new Map(rows.map((item) => [item.id, item]));
+    for (const item of local) if (item.ownerId === uid) merged.set(item.id, item);
+    return [...merged.values()].sort((a, b) => a.name.localeCompare(b.name));
+  } catch {
+    return local.filter((item) => item.ownerId === uid).sort((a, b) => a.name.localeCompare(b.name));
+  }
+}
+
+export async function saveLoanSourceCategory(category: LoanSourceCategory): Promise<void> {
+  await localUpsert(loanSourceCategoriesKey(category.ownerId), category);
+  try {
+    await setDoc(doc(collection(db(), "users", category.ownerId, "loanSourceCategories"), category.id), category, { merge: true });
+  } catch {
+    // Keep the local category available; Firestore retries queued native writes
+    // when connectivity returns.
+  }
 }
 
 /** Projects an assigned Fynage entry into the selected app's canonical ledger.

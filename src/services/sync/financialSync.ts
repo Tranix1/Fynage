@@ -2,7 +2,7 @@ import { getDatabase, withDatabaseTransaction } from "@/db/database";
 import { getSyncState, listFinancialAccounts, mergeRemoteFinancialAccounts, mergeRemoteFinancialCategories, mergeRemoteFinancialRecords, normalizeLedgerRecord } from "@/repositories/financialRecords";
 import { dedupeLedgerRecords } from "@/services/finance/ledgerIdentity";
 import type { FinancialCategory, FinancialRecord } from "@/types/finance";
-import { collection, doc, getDocsFromServer, getFirestore, limit, orderBy, query, runTransaction, serverTimestamp, setDoc, startAfter, where } from "@react-native-firebase/firestore";
+import { collection, doc, getDocsFromServer, getFirestore, limit, orderBy, query, runTransaction, serverTimestamp, startAfter, where } from "@react-native-firebase/firestore";
 
 type QueueRow = { record_id: string; operation: "upsert" | "delete"; payload: string | null; revision: number; attempts: number };
 const active = new Map<string, Promise<void>>();
@@ -64,10 +64,32 @@ async function syncCategories(uid: string, businessId: string): Promise<void> {
   for (const row of rows) {
     const category = JSON.parse(row.payload) as FinancialCategory;
     try {
-      await setDoc(doc(categoryCollection(uid), row.category_id), { ...category, updatedAtServer: serverTimestamp() }, { merge: true });
+      const ref = doc(categoryCollection(uid), row.category_id);
+      let synchronizedCategory: FinancialCategory | undefined;
+      await runTransaction(db, async (transaction) => {
+        const snapshot = await transaction.get(ref);
+        const remote = snapshot.exists() ? { ...snapshot.data(), id: snapshot.id } as FinancialCategory : undefined;
+        const remoteRevision = Number(remote?.revision ?? 0);
+        const base = remote && (remoteRevision > row.revision || (remoteRevision === row.revision && remote.updatedAt > category.updatedAt)) ? remote : category;
+        const names = new Map<string, string>();
+        for (const name of [...(remote?.itemNames ?? []), ...(category.itemNames ?? [])]) {
+          const normalized = name.trim().replace(/\s+/g, " ");
+          if (normalized && !names.has(normalized.toLocaleLowerCase())) names.set(normalized.toLocaleLowerCase(), normalized);
+        }
+        synchronizedCategory = {
+          ...base,
+          id: row.category_id,
+          ownerId: uid,
+          businessId,
+          itemNames: [...names.values()].slice(0, 500),
+          revision: Math.max(remoteRevision, row.revision) + 1,
+          updatedAt: remote && remote.updatedAt > category.updatedAt ? remote.updatedAt : category.updatedAt,
+        };
+        transaction.set(ref, { ...synchronizedCategory, updatedAtServer: serverTimestamp() });
+      });
       await withDatabaseTransaction(async (tx) => {
         await tx.runAsync("DELETE FROM category_sync_queue WHERE owner_id=? AND business_id=? AND category_id=? AND revision=?", uid, businessId, row.category_id, row.revision);
-        await tx.runAsync("UPDATE financial_categories SET sync_status='synced' WHERE owner_id=? AND business_id=? AND category_id=? AND revision=?", uid, businessId, row.category_id, row.revision);
+        if (synchronizedCategory) await tx.runAsync("UPDATE financial_categories SET payload=?,revision=?,sync_status='synced',updated_at=? WHERE owner_id=? AND business_id=? AND category_id=? AND revision=?", JSON.stringify(synchronizedCategory), synchronizedCategory.revision, synchronizedCategory.updatedAt, uid, businessId, row.category_id, row.revision);
       });
     } catch {
       const attempts = row.attempts + 1;

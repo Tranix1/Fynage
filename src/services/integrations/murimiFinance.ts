@@ -1,4 +1,4 @@
-import { collection, getDocs, getDoc, getFirestore, doc } from "@react-native-firebase/firestore";
+import { collection, getDocs, getDoc, getFirestore, doc, setDoc } from "@react-native-firebase/firestore";
 import type { BusinessConnection, FarmShareSummary, MurimiFinanceSnapshot } from "@/types/business";
 import type { FinancialRecordWithSync } from "@/types/finance";
 import { removeBusinessConnection, saveBusinessConnection, updateBusinessConnectionStatus } from "@/repositories/businessConnections";
@@ -11,6 +11,7 @@ const db = getFirestore();
 const numberValue = (value: unknown) => typeof value === "number" && Number.isFinite(value) ? value : 0;
 const rows = async (ownerId: string, accountId: string, name: string) => (await getDocs(collection(db, "users", ownerId, "farmAccounts", accountId, name))).docs.map((item) => ({ id: item.id, ...item.data() })) as Record<string, unknown>[];
 const minor = (value: unknown) => { const amount = typeof value === "number" ? value : Number(value); return Number.isFinite(amount) ? Math.round(amount * 100) : 0; };
+const localFinancialDate = (value: string) => { const date = new Date(value); return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`; };
 const farmDate = (value: unknown) => { const raw = typeof value === "string" && value.trim() ? value : new Date().toISOString(); return /^\d{4}-\d{2}-\d{2}$/.test(raw) ? `${raw}T12:00:00.000Z` : raw; };
 const inventoryValue = (purchases: Record<string, unknown>[], movements: Record<string, unknown>[]) => {
   const purchaseValue = new Map<string, number>();
@@ -75,6 +76,7 @@ export async function listMurimiDirectFinancialRecords(ownerId: string): Promise
         affectsBalance: false,
         account: farm.name,
         assetValueMinor: fixedAsset ? minor(purchase?.totalCost) || amountMinor : undefined,
+        centralAssetId: typeof purchase?.centralAssetId === "string" ? purchase.centralAssetId : undefined,
         source: "murimi",
         classificationStatus: "reviewed",
         createdAt: farmDate(transaction.createdAt),
@@ -110,6 +112,7 @@ export async function listMurimiDirectFinancialRecords(ownerId: string): Promise
         affectsBalance: false,
         account: farm.name,
         assetValueMinor: minor(asset.estimatedValue) || amountMinor,
+        centralAssetId: typeof asset.centralAssetId === "string" ? asset.centralAssetId : undefined,
         source: "murimi",
         classificationStatus: "reviewed",
         createdAt: farmDate(asset.createdAt),
@@ -167,6 +170,34 @@ export async function listMurimiFarmAccounts(ownerId: string): Promise<MurimiFar
   return snapshot.docs.map((item) => { const data = item.data(); return { id: item.id, name: typeof data.name === "string" && data.name.trim() ? data.name : `Farm ${item.id}`, number: typeof data.number === "number" ? data.number : undefined }; }).sort((a, b) => (a.number ?? 99) - (b.number ?? 99));
 }
 
+export async function saveMurimiSharedPlanPurchase(input: { ownerId: string; farmId: string; planId: string; itemId: string; itemName: string; category: string; quantity: number; totalMinor: number; currency: string; date: string; isAsset: boolean; centralAssetId?: string; notes: string }): Promise<void> {
+  const key = `shared_${input.planId}_${input.itemId}`;
+  const purchaseId = `purchase_${key}`;
+  const transactionId = `purchase_${purchaseId}`;
+  const createdAt = new Date().toISOString();
+  const totalCost = input.totalMinor / 100;
+  const purchaseRef = doc(collection(db, "users", input.ownerId, "farmAccounts", input.farmId, "purchases"), purchaseId);
+  const transactionRef = doc(collection(db, "users", input.ownerId, "farmAccounts", input.farmId, "transactions"), transactionId);
+  const purchase = { id: purchaseId, ownerId: input.ownerId, accountId: input.farmId, itemName: input.itemName, category: input.category || "other", financialClassification: input.isAsset ? "fixed_asset" : "operating_expense", itemType: input.isAsset ? "durable_equipment" : "service", inventoryTracked: false, date: input.date, quantity: input.quantity, unit: "unit", unitPrice: input.quantity ? totalCost / input.quantity : totalCost, totalCost, amountPaid: totalCost, outstanding: 0, fullyPaid: true, receiptStatus: "received", currency: input.currency, allocations: [], unallocatedQuantity: input.quantity, unallocatedCost: totalCost, centralAssetId: input.centralAssetId, notes: input.notes, createdAt, updatedAt: createdAt };
+  const transaction = { id: transactionId, ownerId: input.ownerId, accountId: input.farmId, date: input.date, direction: "outflow", category: `purchase_${input.category || "other"}`, amount: totalCost, description: input.itemName, sourceId: purchaseId, createdAt, updatedAt: createdAt };
+  await Promise.all([setDoc(purchaseRef, purchase, { merge: true }), setDoc(transactionRef, transaction, { merge: true })]);
+  if (input.isAsset) {
+    const assetId = `asset_purchase_${purchaseId}`;
+    const categoryText = `${input.category} ${input.itemName}`.toLowerCase();
+    const assetCategory = /land|plot|field/.test(categoryText) ? "land" : /building|shed|barn|warehouse/.test(categoryText) ? "buildings" : /vehicle|car|truck|tractor/.test(categoryText) ? "vehicles" : /solar|electric|battery|generator|panel/.test(categoryText) ? "power" : /water|irrigation|borehole|fence/.test(categoryText) ? "water" : "other";
+    await setDoc(doc(collection(db, "users", input.ownerId, "farmAccounts", input.farmId, "assets"), assetId), { id: assetId, ownerId: input.ownerId, accountId: input.farmId, purchaseId, centralAssetId: input.centralAssetId, name: input.itemName, category: assetCategory, purchaseDate: input.date, inServiceDate: input.date, originalCost: totalCost, estimatedValue: totalCost, quantity: input.quantity, accumulatedDepreciation: 0, status: "not_in_use", notes: input.notes, createdAt, updatedAt: createdAt }, { merge: true });
+  }
+}
+export async function saveMurimiLoanMovement(input: { ownerId: string; farmId: string; loanId: string; eventId: string; amountMinor: number; direction: "inflow" | "outflow"; receivableChangeMinor?: number; payableChangeMinor?: number; date: string; description: string }): Promise<void> {
+  const id = `fynage_loan_${input.loanId}_${input.eventId}`;
+  await setDoc(doc(collection(db, "users", input.ownerId, "farmAccounts", input.farmId, "transactions"), id), {
+    id, ownerId: input.ownerId, accountId: input.farmId, amount: input.amountMinor / 100,
+    currency: "USD", direction: input.direction, date: input.date, category: "Loan",
+    description: input.description, source: "fynage", loanReceivableChange: (input.receivableChangeMinor ?? 0) / 100,
+    loanPayableChange: (input.payableChangeMinor ?? 0) / 100, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+  }, { merge: true });
+}
+
 async function buildSnapshot(ownerId: string, accountId: string): Promise<MurimiFinanceSnapshot> {
   const account = await getDoc(doc(db, "users", ownerId, "farmAccounts", accountId));
   if (!account.exists() || account.data()?.ownerId !== ownerId) throw new Error("This farm is not available to your Fynage account.");
@@ -179,6 +210,10 @@ async function buildSnapshot(ownerId: string, accountId: string): Promise<Murimi
 export async function connectMurimiFinance(ownerId: string, accountId: string): Promise<BusinessConnection> {
   const snapshot = await buildSnapshot(ownerId, accountId);
   const shareSummary = await syncFarmShares(snapshot).catch(() => undefined);
+  const balanceSheet = summarizeMurimiBalanceSheet({ id: `murimi_${accountId}`, ownerId, appId: "murimi", sourceBusinessId: accountId, businessName: snapshot.business.name, status: "connected", generatedAt: snapshot.generatedAt, lastSyncedAt: snapshot.generatedAt, snapshot });
+  const farmValueMinor = shareSummary?.farmValueMinor ?? Math.max(0, Math.round(balanceSheet.netWorth * 100));
+  const ownedValueMinor = shareSummary ? Math.round(farmValueMinor * shareSummary.myShares / Math.max(1, shareSummary.totalShares)) : farmValueMinor;
+  const snapshotDate = localFinancialDate(snapshot.generatedAt);
   const connection: BusinessConnection = {
     id: `murimi_${accountId}`,
     ownerId,
@@ -190,6 +225,7 @@ export async function connectMurimiFinance(ownerId: string, accountId: string): 
     lastSyncedAt: new Date().toISOString(),
     snapshot,
     shareSummary,
+    netWorthHistory: [{ id: `murimi_networth_${accountId}_${snapshotDate}`, date: snapshotDate, netWorthMinor: ownedValueMinor }],
   };
   try {
     await saveBusinessConnection(connection);
@@ -201,7 +237,13 @@ export async function refreshMurimiFinance(ownerId: string, connection: Business
   try {
     const snapshot = await buildSnapshot(ownerId, connection.sourceBusinessId);
     const shareSummary = await syncFarmShares(snapshot).catch(() => connection.shareSummary);
-    const next: BusinessConnection = { ...connection, businessName: snapshot.business.name, status: "connected", generatedAt: snapshot.generatedAt, lastSyncedAt: new Date().toISOString(), snapshot, shareSummary };
+    const balanceSheet = summarizeMurimiBalanceSheet({ id: `murimi_${connection.sourceBusinessId}`, ownerId, appId: "murimi", sourceBusinessId: connection.sourceBusinessId, businessName: snapshot.business.name, status: "connected", generatedAt: snapshot.generatedAt, lastSyncedAt: snapshot.generatedAt, snapshot });
+    const farmValueMinor = shareSummary?.farmValueMinor ?? Math.max(0, Math.round(balanceSheet.netWorth * 100));
+    const ownedValueMinor = shareSummary ? Math.round(farmValueMinor * shareSummary.myShares / Math.max(1, shareSummary.totalShares)) : farmValueMinor;
+    const date = localFinancialDate(snapshot.generatedAt);
+    const point = { id: `murimi_networth_${connection.sourceBusinessId}_${date}`, date, netWorthMinor: ownedValueMinor };
+    const history = [...(connection.netWorthHistory ?? []).filter((item) => item.date.slice(0, 10) !== date), point].sort((a, b) => a.date.localeCompare(b.date)).slice(-5000);
+    const next: BusinessConnection = { ...connection, businessName: snapshot.business.name, status: "connected", generatedAt: snapshot.generatedAt, lastSyncedAt: new Date().toISOString(), snapshot, shareSummary, netWorthHistory: history };
     await saveBusinessConnection(next);
     return next;
   } catch (error) {
